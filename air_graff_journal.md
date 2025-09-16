@@ -48,7 +48,7 @@ This week I made solid progress by integrating the device camera into the app. U
 
 ## Progress This Week
 
-In my third week, we’ve brought almost all the pieces together. The camera and UI are working smoothly, and I've integrated the painting tools so that users can spray paint on either a blank canvas or a photo background. I’ve refined the look and feel of the brushes and the colour options. 
+In my third week, I’ve brought almost all the pieces together. The camera and UI are working smoothly, and I've integrated the painting tools so that users can spray paint on either a blank canvas or a photo background. I’ve refined the look and feel of the brushes and the colour options. 
 
 ## Achievements
 
