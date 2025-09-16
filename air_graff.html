@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <title>Kinetic Graffiti (Free-Air + Photo-Wall)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    :root { --bg:#0b0f18; --panel:rgba(0,0,0,.58); --fg:#fff; }
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    canvas{display:block}
+    .panel{
+      position:fixed;left:12px;top:12px;z-index:10;display:grid;gap:8px;padding:12px 14px;
+      background:var(--panel);backdrop-filter:blur(6px);border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:14px
+    }
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    label{opacity:.9}
+    select,input[type="color"],input[type="range"],button{
+      border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb;box-shadow:0 6px 16px rgba(0,0,0,.25)
+    }
+    input[type="range"]{width:120px}
+    button.action{background:#6ee7ff;color:#06121a;font-weight:800}
+    button.warn{background:#ffd166;color:#241a05;font-weight:800}
+    .hud{position:fixed;right:12px;bottom:12px;background:var(--panel);padding:10px 12px;border-radius:12px}
+    .overlay{
+      position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.78);z-index:20;text-align:center;padding:24px
+    }
+    .overlay>div{background:#111827;color:#fff;padding:20px;border-radius:16px;max-width:560px}
+    .hidden{display:none}
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#111;padding:2px 6px;border-radius:6px}
+    input[type=file]{display:none}
+  </style>
+</head>
+<body>
+
+  <!-- Controls -->
+  <div class="panel">
+    <div class="row">
+      <button id="modeBtn" class="action" title="Toggle Free-Air / Photo-Wall">Mode: <span id="modeLabel">Free-Air</span></button>
+      <button id="motionBtn">Enable Motion</button>
+      <button id="clearBtn" class="warn" title="Clear (Space)">Clear</button>
+      <button id="saveBtn" class="action" title="Save PNG">Save</button>
+    </div>
+    <div class="row">
+      <label>Brush</label>
+      <select id="patternSel">
+        <option value="solid">Solid</option>
+        <option value="spray">Spray</option>
+        <option value="drip">Drip</option>
+      </select>
+      <label>Size</label>
+      <input id="sizeRange" type="range" min="2" max="48" value="12"/>
+      <label>Color</label>
+      <input id="colorPick" type="color" value="#6ee7ff"/>
+    </div>
+    <div id="photoRow" class="row hidden">
+      <label>Photo-Wall</label>
+      <button id="loadBtn">Load Photo</button>
+      <label for="fileInput" class="action" style="cursor:pointer;">Upload / Camera</label>
+      <input id="fileInput" type="file" accept="image/*" capture="environment">
+      <small style="opacity:.8">Tip: use your wall photo or snap one now.</small>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div class="hud" id="hud">Status: <span id="status">no motion (drag to draw)</span><br>
+    β: <span id="b">—</span>, γ: <span id="g">—</span>, energy: <span id="en">—</span>
+  </div>
+
+  <!-- Motion permission overlay for iOS -->
+  <div id="perm" class="overlay">
+    <div>
+      <h2>Enable Motion Access</h2>
+      <p>To paint with movement, your browser needs permission to read motion/orientation.</p>
+      <p>Tap <strong>Allow</strong> when prompted. If your device doesn’t support it, you can still draw by dragging.</p>
+      <p><button id="permBtn" class="action">Request Motion Permission</button></p>
+    </div>
+  </div>
+
+  <script>
+    /* =========================
+       State & Config
+    ========================== */
+    let mode = 'free'; // 'free' or 'photo'
+    let bgImg = null;
+    let trail = [];
+    let lastP = null;
+    let px = null, py = null;      // smoothed cursor from orientation
+    let beta = null, gamma = null; // orientation angles
+    let energy = 0;                // motion energy estimate
+    let haveMotion = false;
+    let smoothing = 0.12;
+    let fadeAlpha = 12;            // canvas fade only for free mode
+    let brushColor = '#6ee7ff';
+    let brushSize = 12;
+    let pattern = 'solid';
+    let lastAcc = {x:0,y:0,z:0};
+
+    /* =========================
+       p5 Setup / Loop
+    ========================== */
+    function setup(){
+      createCanvas(windowWidth, windowHeight);
+      clearCanvas();
+      attachUI();
+      prepareMotion(); // sets up listeners or overlay
+      updateHud();
+    }
+
+    function draw(){
+      // background / photo
+      if(mode === 'free'){
+        // subtle trailing fade in free-air mode
+        push();
+        noStroke(); fill(10,14,24, fadeAlpha); rect(0,0,width,height); pop();
+      }else{
+        // Photo mode: redraw the photo each frame (no fade)
+        if(bgImg){ image(bgImg, 0, 0, width, height); }
+        else { // no photo yet: soft checkerboard hint
+          drawChecker();
+        }
+      }
+
+      // draw trail (for solid pattern glow)
+      if(pattern === 'solid'){
+        push();
+        drawingContext.shadowBlur = 18;
+        drawingContext.shadowColor = hexToRgba(brushColor, 0.8);
+        strokeWeight(brushSize);
+        stroke(brushColor);
+        noFill();
+        for(let i=1;i<trail.length;i++){
+          const a = trail[i-1], b = trail[i];
+          line(a.x,a.y,b.x,b.y);
+        }
+        pop();
+      }
+
+      // Orientation-driven cursor
+      if(haveMotion && beta!=null && gamma!=null){
+        const tx = map(constrain(gamma,-60,60), -60,60, 0,width);
+        const ty = map(constrain(beta,0,90), 0,90, 0,height);
+
+        if(px==null||py==null){ px=tx; py=ty; }
+        px += (tx - px) * smoothing;
+        py += (ty - py) * smoothing;
+
+        paintAt(px, py);
+      }
+
+      // Trail budget
+      if(trail.length > 1200) trail.splice(0, trail.length - 1200);
+    }
+
+    function windowResized(){ resizeCanvas(windowWidth, windowHeight); if(bgImg){ fitBg(); } }
+
+    /* =========================
+       Painting & Patterns
+    ========================== */
+    function paintAt(x,y){
+      // accumulate a simple path for solid lines
+      if(pattern === 'solid'){
+        addPoint(x,y);
+      }else if(pattern === 'spray'){
+        // particle spray proportional to energy and brush size
+        const density = 12 + Math.floor(energy * 8);
+        for(let i=0;i<density;i++){
+          const r = random(brushSize*0.3, brushSize * (1.2 + energy*1.8));
+          const a = random(TWO_PI);
+          const sx = x + r * Math.cos(a);
+          const sy = y + r * Math.sin(a);
+          sprayDot(sx, sy, 0.55 + Math.random()*0.45);
+        }
+      }else if(pattern === 'drip'){
+        // solid core + occasional drips when energy low
+        addPoint(x,y);
+        if(random() < 0.08 && energy < 0.6){
+          let len = random(brushSize*1.5, brushSize*4);
+          drip(x,y,len);
+        }
+      }
+    }
+
+    function addPoint(x,y){
+      const p = createVector(x,y);
+      if(lastP){
+        const steps = max(1, int(p5.Vector.dist(p,lastP)/4));
+        for(let i=1;i<=steps;i++){
+          const t = i/steps;
+          const q = p5.Vector.lerp(lastP,p,t);
+          trail.push(q);
+          // also stamp a soft dot for richer stroke
+          softDot(q.x,q.y, 0.15);
+        }
+      }else{
+        trail.push(p);
+      }
+      lastP = p;
+    }
+
+    function softDot(x,y, alpha=0.25){
+      push();
+      noStroke();
+      const c = color(brushColor);
+      c.setAlpha(255*alpha);
+      fill(c);
+      circle(x,y, brushSize*0.9);
+      pop();
+    }
+
+    function sprayDot(x,y, alpha=0.8){
+      push();
+      noStroke();
+      const c = color(brushColor);
+      c.setAlpha(255*alpha);
+      fill(c);
+      const d = random(brushSize*0.08, brushSize*0.35);
+      circle(x,y,d);
+      pop();
+    }
+
+    function drip(x,y,len){
+      push();
+      stroke(brushColor);
+      strokeWeight(max(2, brushSize*0.15));
+      line(x,y, x, y+len);
+      // drip head
+      noStroke(); fill(brushColor);
+      circle(x, y+len, max(2, brushSize*0.35));
+      pop();
+    }
+
+    /* =========================
+       Motion & Energy
+    ========================== */
+    function prepareMotion(){
+      // Energy via devicemotion (acceleration including gravity)
+      if('ondevicemotion' in window){
+        window.addEventListener('devicemotion', (e)=>{
+          if(!e.accelerationIncludingGravity) return;
+          const a = e.accelerationIncludingGravity;
+          // simple jerk-based energy (difference vs last sample)
+          const jx = a.x - lastAcc.x, jy = a.y - lastAcc.y, jz = a.z - lastAcc.z;
+          lastAcc = {x:a.x||0,y:a.y||0,z:a.z||0};
+          const mag = Math.sqrt(jx*jx + jy*jy + jz*jz);
+          // low-pass into 0..1 range
+          energy += (Math.min(1, mag/3) - energy) * 0.2;
+          updateHud();
+        }, {passive:true});
+      }
+
+      // Orientation permission
+      const needPerm = typeof DeviceOrientationEvent !== 'undefined'
+        && typeof DeviceOrientationEvent.requestPermission === 'function';
+      if(needPerm){
+        // show overlay on button click from UI instead
+        document.getElementById('perm').style.display = 'none';
+      }else{
+        attachOrientation();
+      }
+    }
+
+    function requestMotionPermission(){
+      if(typeof DeviceOrientationEvent === 'undefined' ||
+         typeof DeviceOrientationEvent.requestPermission !== 'function'){
+        // nothing to request
+        attachOrientation();
+        return;
+      }
+      const overlay = document.getElementById('perm');
+      overlay.style.display = 'grid';
+      document.getElementById('permBtn').onclick = async ()=>{
+        try{
+          const r = await DeviceOrientationEvent.requestPermission();
+          overlay.style.display = 'none';
+          if(r === 'granted') attachOrientation();
+          else updateStatus('permission denied (drag to draw)');
+        }catch{
+          overlay.style.display = 'none';
+          updateStatus('permission failed (drag to draw)');
+        }
+      };
+    }
+
+    function attachOrientation(){
+      window.addEventListener('deviceorientation', (ev)=>{
+        if(ev.beta==null || ev.gamma==null) return;
+        beta = ev.beta; gamma = ev.gamma; haveMotion = true; updateHud();
+      }, {passive:true});
+    }
+
+    /* =========================
+       Photo-Wall
+    ========================== */
+    function loadPhotoFromFile(file){
+      const reader = new FileReader();
+      reader.onload = e => {
+        loadImage(e.target.result, (img)=>{
+          bgImg = img; fitBg(); clearPaintingOnly();
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function fitBg(){
+      // p5 image will be drawn scaled to canvas in draw()
+      // here we could pre-scale to optimize, but p5 handles it.
+    }
+
+    function drawChecker(){
+      const s = 40;
+      noStroke();
+      for(let y=0;y<height;y+=s){
+        for(let x=0;x<width;x+=s){
+          const odd = ((x+y)/s) % 2 === 0;
+          fill(odd? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)');
+          rect(x,y,s,s);
+        }
+      }
+    }
+
+    /* =========================
+       Mouse / Touch fallback
+    ========================== */
+    function mouseDragged(){ paintAt(mouseX, mouseY); }
+    function touchMoved(){ paintAt(touchX, touchY); return false; }
+
+    /* =========================
+       UI Wiring
+    ========================== */
+    function attachUI(){
+      const modeBtn = document.getElementById('modeBtn');
+      const modeLabel = document.getElementById('modeLabel');
+      const photoRow = document.getElementById('photoRow');
+      const sizeRange = document.getElementById('sizeRange');
+      const colorPick = document.getElementById('colorPick');
+      const patternSel = document.getElementById('patternSel');
+      const fileInput = document.getElementById('fileInput');
+
+      document.getElementById('clearBtn').onclick = clearCanvas;
+      document.getElementById('saveBtn').onclick = ()=>saveCanvas('kinetic-graffiti','png');
+      document.getElementById('motionBtn').onclick = requestMotionPermission;
+
+      document.getElementById('loadBtn').onclick = ()=> fileInput.click();
+      fileInput.addEventListener('change', (e)=>{
+        if(e.target.files && e.target.files[0]) loadPhotoFromFile(e.target.files[0]);
+      });
+
+      modeBtn.onclick = ()=>{
+        mode = (mode === 'free') ? 'photo' : 'free';
+        modeLabel.textContent = (mode==='free'?'Free-Air':'Photo-Wall');
+        photoRow.classList.toggle('hidden', mode!=='photo');
+        clearPaintingOnly(); // keep photo if in photo mode
+        updateHud();
+      };
+
+      sizeRange.oninput = e => brushSize = parseInt(e.target.value, 10);
+      colorPick.oninput = e => brushColor = e.target.value;
+      patternSel.oninput = e => pattern = e.target.value;
+
+      // keyboard
+      window.addEventListener('keydown', (e)=>{
+        if(e.key === ' ') { e.preventDefault(); clearCanvas(); }
+      });
+    }
+
+    function clearCanvas(){
+      background(10,14,24);
+      if(mode==='photo' && bgImg){ image(bgImg,0,0,width,height); }
+      trail = []; lastP = null;
+    }
+
+    function clearPaintingOnly(){
+      // Clears the strokes but keeps the photo / bg intact
+      background(10,14,24);
+      if(mode==='photo' && bgImg){ image(bgImg,0,0,width,height); }
+      trail = []; lastP = null;
+    }
+
+    /* =========================
+       HUD / Helpers
+    ========================== */
+    function updateHud(){
+      document.getElementById('status').textContent = haveMotion ? 'motion active' : 'no motion (drag to draw)';
+      document.getElementById('b').textContent = (beta==null?'—':beta.toFixed(1));
+      document.getElementById('g').textContent = (gamma==null?'—':gamma.toFixed(1));
+      document.getElementById('en').textContent = energy.toFixed(2);
+    }
+    function updateStatus(msg){
+      document.getElementById('status').textContent = msg;
+    }
+    function hexToRgba(hex, alpha){
+      const c = color(hex); c.setAlpha(255*alpha); return c.toString();
+    }
+  </script>
+</body>
+</html>
