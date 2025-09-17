@@ -63,3 +63,8 @@ In my third week, I’ve brought almost all the pieces together. The camera and 
 
 - Troubleshoot iPhone motion sensor connectivity further and ensure consistent access in both Chrome and Safari.
 - Finalise and test the save functionality so users can easily download their finished graffiti images.
+
+
+I acknowledge the use of ChatGPT in this assessment.
+The resulting output was used for brainstorming ideas and receiving help to guide my work.
+I confirm that the extent of the use of AI in this assessment is limited to the conditions specified above.
