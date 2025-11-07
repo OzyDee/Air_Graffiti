@@ -1,594 +1,464 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Air Graffiti — Compact Mobile UI</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-<style>
-  :root{--bg:#0b0f18;--fg:#fff;--panel:rgba(0,0,0,.65);--accent:#6ee7ff;}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  canvas{display:block;touch-action:none}
+  <!--
+    AR Graffiti MVP — WebXR Hit-Test + Hold-to-Spray + GPS + Fallback
+    -----------------------------------------------------------------
+    What it does:
+      • Starts an immersive-AR session (if supported) with hit-test to find a wall/floor.
+      • Shows a reticle; while you hold the SPRAY button, we stamp semi-transparent
+        "paint dots" (sprites) at the reticle pose so the paint sticks to the surface.
+      • Lets you pick colour & size; Save Snapshot (PNG) and Save Metadata (JSON incl. GPS).
+      • If WebXR AR isn't available, falls back to a simple 2D photo painter.
 
-  /* Top micro-toolbar */
-  .toolbar{
-    position:fixed;top:10px;left:10px;z-index:20;display:flex;gap:8px;align-items:center;
-    background:var(--panel);backdrop-filter:blur(6px);padding:8px 10px;border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.45)
-  }
-  .btn{border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb}
-  .btn.primary{background:var(--accent);color:#06121a;font-weight:800}
-  .chip{font-size:12px;opacity:.9}
-  .swatch{
-    width:28px;height:28px;border-radius:8px;border:2px solid rgba(255,255,255,.75);
-    box-shadow:0 4px 14px rgba(0,0,0,.35); cursor:pointer
-  }
-  #colorInput{position:absolute;left:-9999px}
+    Extend later:
+      • Swap the sprite dot with your fan/drip brush textures.
+      • Add layer system (per-surface group), cap presets, fan-strength, and pressure.
+      • Persist anchors via a WebAR SDK (8th Wall / Lightship VPS) or go native (ARKit/ARCore).
 
-  /* Modal panel */
-  .panel{
-    position:fixed;inset:auto 10px 10px 10px;bottom:10px;z-index:30;max-width:820px;
-    background:var(--panel);backdrop-filter:blur(8px);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.55);
-    padding:12px;display:none
-  }
-  .panel.open{display:block}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .grp{display:grid;gap:8px;margin-top:6px}
-  .grp>h4{margin:0;font-size:12px;letter-spacing:.04em;opacity:.9;text-transform:uppercase}
-  select,input[type="range"],input[type="checkbox"],button{
-    border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb
-  }
-  input[type="range"]{width:160px}
-  input[type="checkbox"]{width:auto;height:auto;padding:0}
-  .hud{position:fixed;right:10px;bottom:10px;background:var(--panel);padding:8px 10px;border-radius:10px;z-index:10;font-size:12px}
-  .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#111;padding:2px 6px;border-radius:6px}
-  .hidden{display:none}
-  @media (max-width:600px){ input[type="range"]{width:130px} }
-</style>
+    Requirements:
+      • Serve over HTTPS (or localhost).
+      • Chrome/Android for WebXR AR; iOS Safari will use the 2D fallback.
+  -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <title>AR Graffiti MVP</title>
+
+  <style>
+    :root { --panel: rgba(0,0,0,.58); --accent:#6ee7ff; --fg:#fff; }
+    html, body { margin:0; height:100%; background:#0b0f18; color:var(--fg); font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    #overlay {
+      position:fixed; inset:0; display:flex; flex-direction:column; justify-content:space-between; pointer-events:none;
+    }
+    .topbar, .bottombar {
+      display:flex; gap:8px; align-items:center; padding:10px; background:var(--panel); backdrop-filter: blur(6px);
+      pointer-events:auto; margin:10px; border-radius:12px;
+    }
+    .topbar { align-self: flex-start; }
+    .bottombar { align-self: flex-end; }
+    .btn {
+      border:0; border-radius:12px; padding:10px 12px; background:#111827; color:#e5e7eb; font-weight:600;
+    }
+    .btn.primary { background:var(--accent); color:#08212a; }
+    .btn.big { padding:14px 18px; font-size:16px; }
+    .chip { font-size:12px; opacity:.9 }
+    input[type="color"] { appearance:none; width:36px; height:36px; border-radius:50%; border:0; padding:0; background:transparent; }
+    input[type="range"] { width:150px; }
+    #arHint { position:fixed; left:50%; transform:translateX(-50%); bottom:10px; font-size:12px; opacity:.9; background:var(--panel); padding:8px 10px; border-radius:10px; }
+    #fallback { position:fixed; inset:0; display:none; background:#0b0f18; }
+    #fbCanvas { display:block; width:100%; height:100%; touch-action:none; }
+    #unsupported { position:fixed; inset:auto 10px 10px 10px; background:var(--panel); padding:12px; border-radius:12px; display:none }
+    a { color:#9de1ff; }
+  </style>
 </head>
 <body>
 
-<!-- Tiny toolbar -->
-<div class="toolbar">
-  <button id="menuBtn" class="btn">Menu</button>
-  <button id="modeBtn" class="btn">Free-Air</button>
-  <button id="motionBtn" class="btn">Enable Motion</button>
-  <select id="inputSel" class="btn">
-    <option value="pointer" selected>Pointer</option>
-    <option value="motion">Motion</option>
-  </select>
-  <div id="colourBtn" class="swatch" title="Colour"></div>
-  <input id="colorInput" type="color" value="#6ee7ff"/>
-</div>
-
-<!-- Settings panel -->
-<div id="panel" class="panel">
-  <div class="row">
-    <div class="chip">Spray Can</div>
-    <span style="flex:1"></span>
-    <button id="saveBtn" class="btn primary">Save</button>
-    <button id="clearBtn" class="btn">Clear (Space)</button>
-    <button id="helpBtn" class="btn">Help</button>
-    <button id="closePanel" class="btn">Close</button>
-  </div>
-
-  <div class="grp">
-    <h4>Nibs</h4>
-    <div class="row">
-      <label>Cap</label>
-      <select id="capSel">
-        <option value="ultra_skinny" selected>Ultra Skinny</option>
-        <option value="skinny">Skinny</option>
-        <option value="medium">Medium</option>
-        <option value="fat">Fat</option>
-        <option value="super_fat">Super Fat</option>
-        <option value="custom">Custom</option>
-      </select>
-
-      <!-- Only visible in Custom -->
-      <span id="sizeFlow" class="row hidden">
-        <label>Size</label><input id="sizeRange" type="range" min="4" max="64" value="14"/>
-        <label>Flow</label><input id="flowRange" type="range" min="1" max="100" value="36"/>
-      </span>
+  <!-- AR UI overlay (DOM Overlay for WebXR) -->
+  <div id="overlay" aria-live="polite">
+    <div class="topbar">
+      <button id="startAR" class="btn primary">Start AR</button>
+      <div class="chip" id="gpsChip">GPS: —</div>
+      <div class="chip" id="statusChip">Status: idle</div>
     </div>
 
-    <div class="row">
-      <label class="row" style="gap:6px;">
-        <input type="checkbox" id="fanEnable"/> Fan
-      </label>
-      <span id="fanRow" class="row hidden">
-        <label>Strength</label><input id="fanStrength" type="range" min="0" max="100" value="0"/>
-        <label>Feather</label><input id="fanFeather" type="range" min="0" max="100" value="35"/>
-      </span>
-
-      <label class="row" style="gap:6px;margin-left:16px;">
-        <input type="checkbox" id="dripEnable"/> Drip
-      </label>
-      <span id="dripRow" class="row hidden">
-        <label>Strength</label><input id="dripStrength" type="range" min="0" max="100" value="45"/>
-      </span>
-    </div>
-
-    <!-- Custom geometry (unlocked only in Custom) -->
-    <div id="designerRow" class="row hidden">
-      <label>Anisotropy</label><input id="anisoRange" type="range" min="0" max="100" value="0"/>
-      <label>Fan Length</label><input id="fanLen" type="range" min="60" max="520" value="180"/>
-      <label>Fan Thickness</label><input id="fanThick" type="range" min="1" max="42" value="6"/>
-      <label>Core Hardness</label><input id="coreHard" type="range" min="0" max="100" value="35"/>
+    <div class="bottombar">
+      <label class="chip">Colour</label>
+      <input id="paintColor" type="color" value="#6ee7ff" aria-label="Paint colour" />
+      <label class="chip">Size</label>
+      <input id="sizeRange" type="range" min="0.5" max="6" step="0.1" value="2.0" />
+      <button id="spray" class="btn big">● Spray (hold)</button>
+      <button id="snapshot" class="btn">Save Snapshot</button>
+      <button id="saveMeta" class="btn">Save Metadata</button>
     </div>
   </div>
 
-  <div id="freeRow" class="grp">
-    <h4>Free-Air</h4>
-    <div class="row">
-      <label>Background</label><input id="bgPick" type="color" value="#0b0f18"/>
-      <label>Fade</label><input id="fadeRange" type="range" min="0" max="40" value="12"/>
-    </div>
-  </div>
+  <!-- Hint -->
+  <div id="arHint">Move phone to scan; align the reticle with your wall, then hold “Spray”.</div>
 
-  <div id="photoRow" class="grp hidden">
-    <h4>Photo-Wall</h4>
-    <div class="row">
+  <!-- Fallback 2D Photo Painter -->
+  <div id="fallback">
+    <div class="topbar" style="position:absolute;left:10px;top:10px;z-index:10;">
       <label for="fileInput" class="btn primary" style="cursor:pointer;">Upload / Camera</label>
-      <input id="fileInput" type="file" accept="image/*" capture="environment" class="hidden">
-      <label>Zoom</label><input id="zoomRange" type="range" min="10" max="300" value="100"/>
-      <button id="fitBtn" class="btn">Fit</button>
-      <button id="oneBtn" class="btn">100%</button>
+      <input id="fileInput" class="btn" type="file" accept="image/*" capture="environment" style="display:none;">
+      <input id="fbColor" type="color" value="#6ee7ff"/>
+      <label class="chip">Size</label><input id="fbSize" type="range" min="2" max="42" value="16" />
+      <button id="fbSave" class="btn">Save PNG</button>
+      <div class="chip">Fallback mode (no AR)</div>
     </div>
+    <canvas id="fbCanvas"></canvas>
   </div>
-</div>
 
-<!-- HUD -->
-<div class="hud" id="hud">
-  <span id="status">drag or Pencil to draw</span> • Input: <span id="inputHud">Pointer</span> • β <span id="b">—</span> γ <span id="g">—</span> • energy <span id="en">—</span>
-</div>
+  <div id="unsupported"></div>
 
-<!-- Help -->
-<div id="help" class="panel" style="max-width:720px;top:10px;bottom:auto;">
-  <div class="grp">
-    <h4>Help</h4>
-    <div class="row" style="line-height:1.5">
-      <div>
-        <p><b>Pointer</b> = Apple Pencil / finger. <b>Motion</b> = tilt/move your phone.</p>
-        <ul>
-          <li>Tap <b>Enable Motion</b> once (iOS permission). Switch <b>Input</b> to Motion to draw by moving.</li>
-          <li><b>Colour</b>: tap the swatch in the top bar.</li>
-          <li><b>Presets</b> are round; you can add Fan/Drip. <b>Custom</b> unlocks geometry.</li>
-          <li><b>Space</b> clears paint. In Photo-Wall, use Zoom and Fit.</li>
-        </ul>
-      </div>
-    </div>
-    <div class="row"><button id="helpClose" class="btn primary">Close</button></div>
-  </div>
-</div>
+  <!-- THREE.js (ESM) -->
+  <script type="module">
+    /**
+     * AR Graffiti MVP — main module
+     * - Sets up THREE WebGLRenderer with WebXR AR session + hit-test.
+     * - Reticle indicates where paint will stick.
+     * - Hold-to-spray adds sprites (decals) to the world at reticle pose.
+     * - GPS captured on load (if available).
+     * - Fallback 2D painter if WebXR AR isn't available.
+     */
+    import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
+    import { ARButton } from 'https://unpkg.com/three@0.158.0/examples/jsm/webxr/ARButton.js';
 
-<script>
-/* ================== Core state ================== */
-let mode='free', bgImg=null, paintLayer, lastP=null;
+    // ---------- DOM ----------
+    const overlay   = document.getElementById('overlay');
+    const startBtn  = document.getElementById('startAR');
+    const sprayBtn  = document.getElementById('spray');
+    const paintInp  = document.getElementById('paintColor');
+    const sizeRange = document.getElementById('sizeRange');
+    const statusChip= document.getElementById('statusChip');
+    const gpsChip   = document.getElementById('gpsChip');
+    const hint      = document.getElementById('arHint');
+    const snapshot  = document.getElementById('snapshot');
+    const saveMeta  = document.getElementById('saveMeta');
+    const unsupportedBox = document.getElementById('unsupported');
 
-let inputMode='pointer'; // 'pointer' | 'motion'
-let haveMotion=false, haveOrientAngle=false, orientAngle=0, orientSmooth=0.18;
-let beta=null, gamma=null, energy=0;
-const FAN_ORIENTATION_OFFSET = Math.PI/2;
-let px=null, py=null, smoothing=0.12;
+    const fallbackDiv = document.getElementById('fallback');
+    const fbCanvas = document.getElementById('fbCanvas');
+    const fbSize   = document.getElementById('fbSize');
+    const fbColor  = document.getElementById('fbColor');
+    const fbSave   = document.getElementById('fbSave');
+    const fileInput= document.getElementById('fileInput');
 
-let dirSmooth=0, dirInit=false; // fallback direction (when no orientation)
-let fadeAlpha=12, freeBgColour='#0b0f18';
-let brushSize=14, flow=36, brushColor='#6ee7ff';
-let currentBrushSize=brushSize, currentFlow=flow, lastPressure=0.6;
+    // ---------- State ----------
+    let renderer, scene, camera;
+    let xrRefSpace = null;
+    let hitTestSource = null;
+    let hitTestInitialized = false;
 
-// geometry (base; Custom can edit)
-let anisotropy=0, fanLength=180, fanThickness=6, coreHardness=35;
-// effects
-let dripEnabled=false, dripStrength=45;
-let fanEnabled=false, fanStrength=0, fanFeather=35;
-// lock
-let controlsLocked=true;
+    let reticle;
+    let spraying = false;
 
-// photo transforms
-let baseFitScale=1, zoomFactor=1, photoOffset={x:0,y:0};
+    // paint settings
+    let paintColor = new THREE.Color(paintInp.value);
+    let paintSize  = parseFloat(sizeRange.value); // world units (approx. meters)
 
-// canvas/pointer
-let canvasElt=null, pointerActive=false;
+    // session metadata (simple)
+    const meta = {
+      startedAt: new Date().toISOString(),
+      gps: null,
+      stamps: 0
+    };
 
-/* ================== Setup / draw ================== */
-function setup(){
-  const cnv=createCanvas(windowWidth, windowHeight); canvasElt=cnv.elt;
-  paintLayer=createGraphics(windowWidth, windowHeight); paintLayer.clear();
-  background(freeBgColour);
-  attachUI();
-  attachPointer();
-  applyCap('ultra_skinny');
-  setControlsLocked(true);
-  updateHud();
-}
-
-function draw(){
-  if(mode==='free'){
-    push(); noStroke(); const c=color(freeBgColour); c.setAlpha(fadeAlpha); fill(c); rect(0,0,width,height); pop();
-  }else{
-    if(bgImg){ drawPhotoTransformed(); } else { drawChecker(); }
-  }
-  image(paintLayer,0,0);
-
-  if(inputMode==='motion' && haveMotion && (beta!=null || gamma!=null)){
-    const tx=map(constrain(gamma??0,-60,60),-60,60,0,width);
-    const ty=map(constrain(beta??0,0,90),0,90,0,height);
-    if(px==null||py==null){ px=tx; py=ty; }
-    px+=(tx-px)*smoothing; py+=(ty-py)*smoothing;
-    sprayAt(px,py,null);
-  }
-}
-
-function windowResized(){
-  resizeCanvas(windowWidth, windowHeight);
-  const nl=createGraphics(windowWidth, windowHeight); nl.clear();
-  if(paintLayer) nl.image(paintLayer,0,0,windowWidth,windowHeight);
-  paintLayer=nl;
-  if(bgImg){ computeBaseFit(); drawPhotoTransformed(); }
-}
-
-/* ================== Dynamics ================== */
-function setDynamicsForPressure(p){
-  const pr=(p==null||isNaN(p))?0.6:Math.max(0,Math.min(1,p));
-  lastPressure=pr;
-  currentBrushSize=brushSize*(0.6+0.8*pr);
-  currentFlow=flow*(0.4+0.8*pr);
-}
-
-/* ===== Eased fan sizing (gradual at start) ===== */
-function easeInCubic(s){ return s*s*s; }
-function getFanParams(){
-  let s=Math.max(0,Math.min(100,fanStrength))/100;
-  if(s<0.03) s=0;                    // deadzone near 0 = perfectly round
-  const e=easeInCubic(s);            // gentle start, ramps late
-  const scale=0.6+1.6*e;
-  const stretch=1.0+2.6*e;
-  const len=fanLength*scale;
-  const thick=Math.max(1,fanThickness*(0.65+1.35*e));
-  return {len,thick,stretch};
-}
-
-/* ================== Spray Engine ================== */
-function sprayAt(x,y,pressure=null){
-  setDynamicsForPressure(pressure);
-  const p=createVector(x,y);
-  if(lastP){
-    const steps=Math.max(1,int(p5.Vector.dist(p,lastP)/4));
-    for(let i=1;i<=steps;i++){
-      const t=i/steps, q=p5.Vector.lerp(lastP,p,t);
-      const dir=Math.atan2(q.y-lastP.y,q.x-lastP.x);
-      smoothDir(dir);
-
-      const wantFan=fanEnabled && fanStrength>0;
-      const ang=chooseSprayAngle(wantFan);
-
-      if(wantFan) doSprayCloudAnisoTight(q.x,q.y,ang);
-      else        doSprayCloudRound(q.x,q.y);
-
-      if(wantFan) stampFan(q.x,q.y,ang);
-      else        stampRoundCore(q.x,q.y);
-
-      if(dripEnabled && Math.random()<dripChance()) drawDrip(q.x,q.y,dripLen(),dripThick());
-    }
-  }else{
-    const wantFan=fanEnabled && fanStrength>0;
-    const ang=chooseSprayAngle(wantFan);
-    if(wantFan) doSprayCloudAnisoTight(p.x,p.y,ang); else doSprayCloudRound(p.x,p.y);
-    if(wantFan) stampFan(p.x,p.y,ang); else stampRoundCore(p.x,p.y);
-    if(dripEnabled && Math.random()<dripChance()) drawDrip(p.x,p.y,dripLen(),dripThick());
-  }
-  lastP=p;
-}
-
-function chooseSprayAngle(wantFan){
-  if(wantFan && haveOrientAngle) return orientAngle + FAN_ORIENTATION_OFFSET;
-  return dirSmooth + FAN_ORIENTATION_OFFSET;
-}
-function smoothDir(newDir){
-  if(!dirInit){ dirSmooth=newDir; dirInit=true; return; }
-  let d=normalizeAngle(newDir-dirSmooth); dirSmooth=dirSmooth + d*0.25;
-}
-function normalizeAngle(a){ while(a> Math.PI) a-=TWO_PI; while(a<-Math.PI) a+=TWO_PI; return a; }
-
-function doSprayCloudRound(x,y){
-  const density=Math.round(map(currentFlow,1,100,6,36))+Math.floor(energy*8);
-  for(let i=0;i<density;i++){
-    const r=random(currentBrushSize*0.25,currentBrushSize*(1.1+energy*0.8));
-    const a=random(TWO_PI);
-    sprayDot(x+r*Math.cos(a), y+r*Math.sin(a), 0.40+Math.random()*0.40);
-  }
-}
-
-/* Feather works here: higher feather = softer edge */
-function doSprayCloudAnisoTight(x,y,dir){
-  const {len,thick,stretch}=getFanParams();
-  const major=Math.max(currentBrushSize*0.9,len*0.40)*stretch; // along fin
-  const minor=Math.max(currentBrushSize*0.30,thick*0.85);      // across fin
-  const ux=Math.cos(dir), uy=Math.sin(dir), vx=-uy, vy=ux;
-
-  const baseDensity=map(currentFlow,1,100,10,42);
-  const density=Math.round(baseDensity + energy*8);
-
-  const softness = Math.max(0, Math.min(1, fanFeather/100));
-  const k = 6 - 4.8*softness; // 0 hard → 6, 100 soft → 1.2
-
-  for(let i=0;i<density;i++){
-    let a,b,tries=0;
-    do{ a=randomGaussian(0,0.33); b=randomGaussian(0,0.28); tries++; }while((a*a+b*b>1.0)&&tries<6);
-    const sx=x+(a*major)*ux+(b*minor)*vx;
-    const sy=y+(a*major)*uy+(b*minor)*vy;
-    const edge = Math.min(1, Math.abs(b));
-    const fall = Math.pow(1 - edge, k);
-    const alpha=(0.18 + 0.42*fall) * (0.8 + 0.4*lastPressure);
-    sprayDot(sx,sy,alpha);
-  }
-}
-
-function stampRoundCore(x,y){
-  paintLayer.noStroke(); const hard=coreHardness/100;
-  const baseA=lerp(0.18,0.70,hard); const c=color(brushColor); c.setAlpha(255*baseA);
-  paintLayer.fill(c); paintLayer.circle(x,y,currentBrushSize*lerp(0.95,0.60,hard));
-}
-function stampFan(x,y,dir){
-  const {len,thick}=getFanParams();
-  paintLayer.push(); paintLayer.translate(x,y); paintLayer.rotate(dir); paintLayer.noStroke();
-  const hard=coreHardness/100;
-  const halo=color(brushColor); halo.setAlpha(28);
-  paintLayer.fill(halo); paintLayer.rectMode(CENTER);
-  paintLayer.rect(0,0,len*1.04,Math.max(1,thick*1.4),Math.max(1,thick*0.7));
-  for(let i=0;i<2;i++){
-    const L=len*(1+(i?0.05:0)), T=thick*(1+(i?0.45:0));
-    const alpha=lerp(0.08,0.22,1-hard)*(i?1:0.6);
-    const c=color(brushColor); c.setAlpha(255*alpha);
-    paintLayer.fill(c); paintLayer.rectMode(CENTER);
-    paintLayer.rect(0,0,L,T,T*0.6);
-  }
-  const core=color(brushColor); core.setAlpha(255*lerp(0.45,0.80,hard));
-  paintLayer.fill(core); paintLayer.rectMode(CENTER);
-  paintLayer.rect(0,0,len,Math.max(1,thick*0.6),Math.max(1,thick*0.4));
-  paintLayer.pop();
-}
-function sprayDot(x,y,a=0.8){
-  paintLayer.noStroke(); const c=color(brushColor); c.setAlpha(255*a);
-  paintLayer.fill(c); const d=random(currentBrushSize*0.08,currentBrushSize*0.30);
-  paintLayer.circle(x,y,d);
-}
-
-/* ================== Drips ================== */
-function dripChance(){ return constrain(0.01 + dripStrength*0.003 + energy*0.08, 0, 0.30); }
-function dripLen(){ const mul=0.8+0.022*dripStrength, em=1.0+energy*1.3; return random(currentBrushSize*1.2,currentBrushSize*3.8)*mul*em; }
-function dripThick(){ return Math.max(2,currentBrushSize*(0.08+0.006*dripStrength)); }
-function drawDrip(x,y,len,thick){
-  paintLayer.push(); paintLayer.stroke(brushColor); paintLayer.strokeWeight(thick);
-  paintLayer.line(x,y,x,y+len); paintLayer.noStroke(); paintLayer.fill(brushColor);
-  paintLayer.circle(x,y+len,Math.max(2,thick*0.7)); paintLayer.pop();
-}
-
-/* ================== Motion (iOS permission safe) ================== */
-function getScreenAngle(){
-  if (typeof window.orientation === 'number') return window.orientation;
-  const a=(screen.orientation && typeof screen.orientation.angle==='number')?screen.orientation.angle:0;
-  return ((a+540)%360)-180;
-}
-function tiltToRadians(b,g){
-  const ang=getScreenAngle(); let deg;
-  if (ang===0) deg=g; else if(ang===90) deg=b; else if(ang===-90||ang===270) deg=-b; else deg=-g;
-  return radians(deg||0);
-}
-async function enableMotion(){
-  try{
-    // iOS 13+ permission gates
-    if (typeof DeviceOrientationEvent!=='undefined' &&
-        typeof DeviceOrientationEvent.requestPermission==='function'){
-      const r1 = await DeviceOrientationEvent.requestPermission();
-      if(r1!=='granted'){ updateStatus('motion denied'); return; }
-    }
-    if (typeof DeviceMotionEvent!=='undefined' &&
-        typeof DeviceMotionEvent.requestPermission==='function'){
-      const r2 = await DeviceMotionEvent.requestPermission();
-      // Some iOS versions don't implement this; ignore if undefined
+    // ---------- GPS ----------
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          meta.gps = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            acc: pos.coords.accuracy
+          };
+          gpsChip.textContent = `GPS: ${meta.gps.lat.toFixed(5)}, ${meta.gps.lng.toFixed(5)} (±${Math.round(meta.gps.acc)}m)`;
+        },
+        err => { gpsChip.textContent = 'GPS: unavailable'; },
+        { enableHighAccuracy:true, timeout:8000, maximumAge:5000 }
+      );
+    } else {
+      gpsChip.textContent = 'GPS: not supported';
     }
 
-    // Listeners
-    window.addEventListener('deviceorientation',(ev)=>{
-      if (ev.gamma!=null) gamma=ev.gamma;
-      if (ev.beta!=null) beta=ev.beta;
-      if (ev.beta!=null || ev.gamma!=null){
-        const target=tiltToRadians(ev.beta,ev.gamma);
-        const delta=normalizeAngle(target - orientAngle);
-        orientAngle=orientAngle + delta*orientSmooth;
-        haveOrientAngle=true; haveMotion=true; updateHud();
+    // ---------- Feature detect & boot ----------
+    const xrOK = navigator.xr && await navigator.xr.isSessionSupported?.('immersive-ar');
+    if (!xrOK) {
+      // show fallback painter
+      startFallbackPainter();
+      showUnsupported('AR not supported on this device/browser. You can still paint on photos in fallback mode.');
+    }
+
+    // Wire UI regardless; Start AR will no-op in fallback.
+    startBtn.addEventListener('click', () => { if(xrOK) initAR(); });
+    paintInp.addEventListener('input', () => { paintColor.set(paintInp.value); });
+    sizeRange.addEventListener('input', () => { paintSize = parseFloat(sizeRange.value); });
+
+    sprayBtn.addEventListener('pointerdown', e => { spraying = true; sprayBtn.classList.add('primary'); });
+    sprayBtn.addEventListener('pointerup',   e => { spraying = false; sprayBtn.classList.remove('primary'); });
+    sprayBtn.addEventListener('pointerleave',e => { spraying = false; sprayBtn.classList.remove('primary'); });
+
+    snapshot.addEventListener('click', saveSnapshot);
+    saveMeta.addEventListener('click', () => downloadText(JSON.stringify(meta,null,2), `AR-Metadata-${new Date().toISOString().slice(0,19)}.json`));
+
+    // ---------- AR Init ----------
+    async function initAR(){
+      statusChip.textContent = 'Status: starting AR…';
+      // Scene + camera
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera();
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.xr.enabled = true;
+
+      // Put Three's canvas behind our overlay
+      document.body.appendChild(renderer.domElement);
+      renderer.domElement.style.position = 'fixed';
+      renderer.domElement.style.inset = '0';
+
+      // Lighting (subtle, mostly for sprites if needed)
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+      scene.add(light);
+
+      // Reticle mesh (ring)
+      reticle = buildReticle();
+      scene.add(reticle);
+
+      // AR Button (uses DOM overlay root)
+      const arBtn = ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test', 'dom-overlay'],
+        domOverlay: { root: document.body }
+      });
+      // Replace default ARButton with our "Start AR"
+      arBtn.style.display = 'none';
+
+      // Session start
+      renderer.xr.addEventListener('sessionstart', onSessionStart);
+      renderer.xr.addEventListener('sessionend', onSessionEnd);
+
+      // Render loop
+      renderer.setAnimationLoop(renderXR);
+
+      window.addEventListener('resize', onWindowResize, { passive:true });
+    }
+
+    function onWindowResize(){
+      if(!renderer || !camera) return;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    async function onSessionStart(){
+      statusChip.textContent = 'Status: scanning…';
+      hint.style.display='block';
+
+      const session = renderer.xr.getSession();
+      xrRefSpace = await session.requestReferenceSpace('local');
+
+      // Hit test source
+      const viewerSpace = await session.requestReferenceSpace('viewer');
+      const sources = await session.requestHitTestSource({ space: viewerSpace });
+      hitTestSource = sources;
+      hitTestInitialized = true;
+    }
+
+    function onSessionEnd(){
+      statusChip.textContent = 'Status: ended';
+      hitTestSource = null;
+      hitTestInitialized = false;
+      xrRefSpace = null;
+      // keep the snapshot UI available
+    }
+
+    // ---------- Render loop ----------
+    function renderXR(t, frame){
+      if(!frame || !xrRefSpace) { renderer.render(scene, camera); return; }
+
+      const session = renderer.xr.getSession();
+      const pose = frame.getViewerPose(xrRefSpace);
+
+      if (hitTestInitialized) {
+        const hitRes = frame.getHitTestResults(hitTestSource);
+        if (hitRes.length > 0) {
+          const hit = hitRes[0];
+          const hitPose = hit.getPose(xrRefSpace);
+          reticle.visible = true;
+          reticle.matrix.fromArray(hitPose.transform.matrix);
+          reticle.matrix.decompose(reticle.position, reticle.quaternion, reticle.scale);
+          statusChip.textContent = 'Status: target locked';
+          hint.style.display = 'none';
+
+          if (spraying) {
+            // Stamp a bunch of dots each frame for a spray feel
+            for(let i=0;i<8;i++){
+              addSprayDotAtReticle();
+              meta.stamps++;
+            }
+          }
+        } else {
+          reticle.visible = false;
+          statusChip.textContent = 'Status: scanning…';
+          hint.style.display='block';
+        }
       }
-    },{passive:true});
 
-    window.addEventListener('devicemotion',(e)=>{
-      const a=e.accelerationIncludingGravity;
-      if(!a) return;
-      const jx=(a.x||0), jy=(a.y||0), jz=(a.z||0);
-      const mag=Math.sqrt(jx*jx + jy*jy + jz*jz);
-      energy += (Math.min(1, mag/30) - energy) * 0.2;
-      updateHud();
-    },{passive:true});
+      renderer.render(scene, camera);
+    }
 
-    haveMotion=true;
-    updateStatus('motion enabled');
-  }catch(err){
-    updateStatus('motion error');
-  }
-}
+    // ---------- Build helpers ----------
+    function buildReticle(){
+      const geo = new THREE.RingGeometry(0.06, 0.075, 32);
+      const mat = new THREE.MeshBasicMaterial({ color: 0x80ffdd, opacity:0.9, transparent:true, side:THREE.DoubleSide });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI/2;
+      mesh.visible = false;
+      return mesh;
+    }
 
-/* ================== Pointer ================== */
-function attachPointer(){
-  if(!canvasElt) return;
-  const getXY=(e)=>{ const r=canvasElt.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top}; };
+    // Create (once) a small soft circular texture we tint per-sprite via material color
+    const paintTexture = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const ctx = c.getContext('2d');
+      const grd = ctx.createRadialGradient(64,64,8, 64,64,64);
+      grd.addColorStop(0, 'rgba(255,255,255,0.9)');
+      grd.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+      grd.addColorStop(1, 'rgba(255,255,255,0.0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0,0,128,128);
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      return tex;
+    })();
 
-  canvasElt.addEventListener('pointerdown',(e)=>{
-    if(inputMode!=='pointer') return;               // ignore while in Motion mode
-    pointerActive=true;
-    // Important for iOS Safari: capture & preventDefault so painting works
-    canvasElt.setPointerCapture(e.pointerId);
-    const {x,y}=getXY(e);
-    sprayAt(x,y,e.pressure);
-    e.preventDefault();
-  },{passive:false});
+    function addSprayDotAtReticle(){
+      if(!reticle || !reticle.visible) return;
+      // Random small offset in reticle local space to emulate spray spread
+      const spread = paintSize * 0.35;
+      const rx = (Math.random()*2-1) * spread;
+      const ry = (Math.random()*2-1) * spread;
 
-  canvasElt.addEventListener('pointermove',(e)=>{
-    if(inputMode!=='pointer' || !pointerActive) return;
-    const {x,y}=getXY(e);
-    sprayAt(x,y,e.pressure);
-    e.preventDefault();
-  },{passive:false});
+      const spriteMat = new THREE.SpriteMaterial({
+        map: paintTexture,
+        color: paintColor,
+        transparent: true,
+        depthWrite: false
+      });
+      const sprite = new THREE.Sprite(spriteMat);
 
-  const end=(e)=>{
-    if(inputMode!=='pointer') return;
-    pointerActive=false; lastP=null; e.preventDefault();
-  };
-  canvasElt.addEventListener('pointerup',end,{passive:false});
-  canvasElt.addEventListener('pointercancel',end,{passive:false});
-  canvasElt.addEventListener('pointerout',end,{passive:false});
-  canvasElt.addEventListener('pointerleave',end,{passive:false});
-}
+      // Place at reticle + offset in reticle's tangent plane
+      const up = new THREE.Vector3(0,1,0);
+      const normal = new THREE.Vector3(0,1,0);
+      // Extract plane normal from reticle quaternion (assumes XZ plane reticle)
+      normal.set(0,1,0).applyQuaternion(reticle.quaternion);
 
-/* ================== UI ================== */
-function attachUI(){
-  const $=id=>document.getElementById(id);
+      const right = new THREE.Vector3(1,0,0).applyQuaternion(reticle.quaternion);
+      const forward = new THREE.Vector3(0,0,1).applyQuaternion(reticle.quaternion);
 
-  // toolbar
-  const panel=$('panel');
-  $('menuBtn').onclick = ()=> panel.classList.toggle('open');
-  $('closePanel').onclick = ()=> panel.classList.remove('open');
+      sprite.position.copy(reticle.position)
+        .addScaledVector(right, rx)
+        .addScaledVector(forward, ry);
 
-  $('modeBtn').onclick = ()=>{
-    mode=(mode==='free')?'photo':'free';
-    $('modeBtn').textContent=(mode==='free'?'Free-Air':'Photo-Wall');
-    $('photoRow').classList.toggle('hidden', mode!=='photo');
-    $('freeRow').classList.toggle('hidden', mode!=='free');
-    clearPaintingOnly();
-  };
+      const s = paintSize * (0.7 + Math.random()*0.6);
+      sprite.scale.setScalar(s);
 
-  $('motionBtn').onclick = enableMotion;
+      scene.add(sprite);
+    }
 
-  $('inputSel').oninput = (e)=>{
-    inputMode = e.target.value;
-    updateHud();
-  };
+    // ---------- Snapshot & Metadata ----------
+    function saveSnapshot(){
+      try{
+        const data = renderer.domElement.toDataURL('image/png');
+        downloadDataURL(data, `AR-Snapshot-${new Date().toISOString().slice(0,19)}.png`);
+      }catch(e){
+        alert('Snapshot failed (browser blocked readback). Try a regular screenshot.');
+      }
+    }
+    function downloadDataURL(dataURL, filename){
+      const a = document.createElement('a');
+      a.href = dataURL; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+    function downloadText(text, filename){
+      const blob = new Blob([text], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
 
-  // Colour button is the swatch
-  const colourBtn=$('colourBtn'), colorInput=$('colorInput');
-  const syncSwatch=()=>{ colourBtn.style.background = colorInput.value; brushColor=colorInput.value; };
-  colourBtn.onclick = ()=> colorInput.click();
-  colorInput.oninput = syncSwatch;
-  syncSwatch();
+    // ---------- Fallback painter (2D photo) ----------
+    function startFallbackPainter(){
+      // Show fallback UI
+      fallbackDiv.style.display = 'block';
 
-  // panel controls
-  $('saveBtn').onclick = ()=> saveCanvas('spray-can','png');
-  $('clearBtn').onclick = clearCanvas;
-  window.addEventListener('keydown',(e)=>{ if(e.key===' '){ e.preventDefault(); clearCanvas(); } });
+      const ctx = fbCanvas.getContext('2d');
+      let img = null, painting=false, last=null;
 
-  $('helpBtn').onclick = ()=> $('help').classList.add('open');
-  $('helpClose').onclick = ()=> $('help').classList.remove('open');
+      function resize(){
+        fbCanvas.width = window.innerWidth;
+        fbCanvas.height= window.innerHeight;
+        redraw();
+      }
+      function redraw(){
+        ctx.fillStyle = '#0b0f18';
+        ctx.fillRect(0,0,fbCanvas.width, fbCanvas.height);
+        if(img){
+          // Fit image
+          const s = Math.min(fbCanvas.width/img.width, fbCanvas.height/img.height);
+          const w = img.width*s, h=img.height*s;
+          ctx.drawImage(img, (fbCanvas.width-w)/2, (fbCanvas.height-h)/2, w, h);
+        }
+      }
+      window.addEventListener('resize', resize, {passive:true});
+      resize();
 
-  $('capSel').oninput = e=>{
-    const id=e.target.value;
-    applyCap(id);
-    setControlsLocked(id!=='custom');
-    // show/hide custom controls
-    $('sizeFlow').classList.toggle('hidden', id!=='custom');
-    $('designerRow').classList.toggle('hidden', id!=='custom');
-  };
+      function stamp(x,y){
+        const r = parseInt(fbSize.value,10);
+        const g = ctx.createRadialGradient(x,y, r*0.1, x,y, r);
+        const col = fbColor.value;
+        g.addColorStop(0, hexToRgba(col, 0.9));
+        g.addColorStop(0.5, hexToRgba(col, 0.5));
+        g.addColorStop(1, hexToRgba(col, 0.0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      }
+      function onDown(e){ painting=true; last=getXY(e); stamp(last.x,last.y); e.preventDefault(); }
+      function onMove(e){ if(!painting) return; const p=getXY(e);
+        const dx=p.x-last.x, dy=p.y-last.y; const d=Math.hypot(dx,dy);
+        const step = Math.max(1, parseInt(fbSize.value,10)*0.4);
+        const n = Math.ceil(d/step);
+        for(let i=1;i<=n;i++){ const t=i/n; stamp(last.x+dx*t, last.y+dy*t); }
+        last=p; e.preventDefault();
+      }
+      function onEnd(){ painting=false; last=null; }
 
-  $('sizeRange').oninput = e=> brushSize=parseInt(e.target.value,10);
-  $('flowRange').oninput = e=> flow=parseInt(e.target.value,10);
+      function getXY(e){
+        const r=fbCanvas.getBoundingClientRect();
+        const x = (e.touches? e.touches[0].clientX : e.clientX) - r.left;
+        const y = (e.touches? e.touches[0].clientY : e.clientY) - r.top;
+        return {x,y};
+      }
+      function hexToRgba(hex,a){
+        const m=hex.match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+        if(!m) return `rgba(255,255,255,${a})`;
+        const r=parseInt(m[1],16), g=parseInt(m[2],16), b=parseInt(m[3],16);
+        return `rgba(${r},${g},${b},${a})`;
+        }
 
-  $('fanEnable').oninput = e=>{ fanEnabled=e.target.checked; $('fanRow').classList.toggle('hidden', !fanEnabled); };
-  $('fanStrength').oninput = e=> fanStrength=parseInt(e.target.value,10);
-  $('fanFeather').oninput  = e=> fanFeather=parseInt(e.target.value,10);
+      fbCanvas.addEventListener('pointerdown', onDown, {passive:false});
+      fbCanvas.addEventListener('pointermove', onMove, {passive:false});
+      fbCanvas.addEventListener('pointerup',   onEnd,  {passive:true});
+      fbCanvas.addEventListener('pointercancel',onEnd, {passive:true});
+      fbCanvas.addEventListener('pointerleave', onEnd, {passive:true});
 
-  $('dripEnable').oninput = e=>{ dripEnabled=e.target.checked; $('dripRow').classList.toggle('hidden', !dripEnabled); };
-  $('dripStrength').oninput = e=> dripStrength=parseInt(e.target.value,10);
+      fileInput.addEventListener('change', (ev)=>{
+        if(!ev.target.files || !ev.target.files[0]) return;
+        const reader = new FileReader();
+        reader.onload = e=>{
+          const _img = new Image();
+          _img.onload = ()=>{ img=_img; redraw(); };
+          _img.src = e.target.result;
+        };
+        reader.readAsDataURL(ev.target.files[0]);
+      });
 
-  $('anisoRange').oninput = e=> anisotropy=parseInt(e.target.value,10);
-  $('fanLen').oninput     = e=> fanLength=parseInt(e.target.value,10);
-  $('fanThick').oninput   = e=> fanThickness=parseInt(e.target.value,10);
-  $('coreHard').oninput   = e=> coreHardness=parseInt(e.target.value,10);
+      fbSave.addEventListener('click', ()=>{
+        const a=document.createElement('a');
+        a.download = `PhotoPaint-${new Date().toISOString().slice(0,19)}.png`;
+        a.href = fbCanvas.toDataURL('image/png');
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      });
+    }
 
-  $('bgPick').oninput     = e=> freeBgColour=e.target.value;
-  $('fadeRange').oninput  = e=> fadeAlpha=parseInt(e.target.value,10);
-
-  $('fileInput')?.addEventListener('change',(ev)=>{
-    if(ev.target.files && ev.target.files[0]) loadPhotoFromFile(ev.target.files[0]);
-  });
-
-  $('zoomRange')?.addEventListener('input', e=>{ zoomFactor=parseInt(e.target.value,10)/100; });
-
-  $('fitBtn').onclick = ()=>{ computeBaseFit(); photoOffset={x:0,y:0}; zoomFactor=1; };
-  $('oneBtn').onclick = ()=>{ computeBaseFit(); zoomFactor=Math.max(0.1,Math.min(3.0,1/baseFitScale)); photoOffset={x:0,y:0}; };
-
-  // start states
-  $('photoRow').classList.add('hidden');
-  $('freeRow').classList.remove('hidden');
-  updateHud();
-}
-
-function setControlsLocked(locked){
-  controlsLocked=locked;
-  // In presets, size/flow/geometry are locked; fan feather stays usable when fan is on
-  ['sizeRange','flowRange','anisoRange','fanLen','fanThick','coreHard'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.disabled=locked;
-  });
-}
-
-function applyCap(id){
-  const C={
-    ultra_skinny:{ size:10, flow:18, hard:70, len:120, thick:3  },
-    skinny:      { size:13, flow:26, hard:60, len:160, thick:5  },
-    medium:      { size:16, flow:34, hard:45, len:190, thick:7  },
-    fat:         { size:22, flow:58, hard:40, len:280, thick:12 },
-    super_fat:   { size:30, flow:88, hard:30, len:400, thick:16 }
-  };
-  if(id==='custom') return;
-
-  const p=C[id]; if(!p) return;
-  brushSize=p.size; flow=p.flow; coreHardness=p.hard;
-  fanLength=p.len; fanThickness=p.thick;
-
-  // Presets start round
-  fanEnabled=false; fanStrength=0;
-  document.getElementById('fanEnable').checked=false;
-  document.getElementById('fanStrength').value=0;
-  document.getElementById('fanRow').classList.add('hidden');
-
-  // reflect sliders if visible
-  const sr=document.getElementById('sizeRange'); if(sr) sr.value=brushSize;
-  const fr=document.getElementById('flowRange'); if(fr) fr.value=flow;
-  const ch=document.getElementById('coreHard'); if(ch) ch.value=coreHardness;
-  const fl=document.getElementById('fanLen'); if(fl) fl.value=fanLength;
-  const ft=document.getElementById('fanThick'); if(ft) ft.value=fanThickness;
-}
-
-/* ================== Photo helpers ================== */
-function computeBaseFit(){ if(!bgImg) return; baseFitScale=Math.min(width/bgImg.width, height/bgImg.height)||1; }
-function drawPhotoTransformed(){ drawChecker(); push(); translate(width/2+photoOffset.x, height/2+photoOffset.y); scale(baseFitScale*zoomFactor); imageMode(CENTER); image(bgImg,0,0); pop(); }
-function loadPhotoFromFile(file){
-  const reader=new FileReader();
-  reader.onload=e=>{ loadImage(e.target.result,(img)=>{ bgImg=img; computeBaseFit(); zoomFactor=1; photoOffset={x:0,y:0}; clearPaintingOnly(); }); };
-  reader.readAsDataURL(file);
-}
-
-/* ================== Misc ================== */
-function clearCanvas(){ (mode==='photo'&&bgImg)?(background(0),drawPhotoTransformed()):background(freeBgColour); paintLayer.clear(); lastP=null; }
-function clearPaintingOnly(){ (mode==='photo'&&bgImg)?(background(0),drawPhotoTransformed()):background(freeBgColour); paintLayer.clear(); lastP=null; }
-function drawChecker(){ const s=40; noStroke(); for(let y=0;y<height;y+=s){ for(let x=0;x<width;x+=s){ const odd=((x+y)/s)%2===0; fill(odd?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.02)'); rect(x,y,s,s);} } }
-function updateHud(){
-  document.getElementById('status').textContent=(inputMode==='motion'?'move/tilt to draw':'drag or Pencil to draw');
-  document.getElementById('inputHud').textContent=(inputMode==='motion'?'Motion':'Pointer');
-  document.getElementById('b').textContent=(beta==null?'—':beta.toFixed(1));
-  document.getElementById('g').textContent=(gamma==null?'—':gamma.toFixed(1));
-  document.getElementById('en').textContent=energy.toFixed(2);
-}
-
-/* utility */
-function clamp(min,v,max){ return Math.max(min, Math.min(max, v)); }
-</script>
+    function showUnsupported(msg){
+      unsupportedBox.style.display='block';
+      unsupportedBox.innerHTML = `<b>Heads up:</b> ${msg}<br/><br/>
+        <small>For true world-anchored AR on iPhone/iPad, consider a WebAR SDK (8th Wall / Niantic Lightship) or a native app (ARKit) with GeoAnchors.</small>`;
+    }
+  </script>
 </body>
 </html>
