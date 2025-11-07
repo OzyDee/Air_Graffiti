@@ -3,395 +3,755 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-  <title>Air Graffiti (Free-Air + Photo-Wall)</title>
+  <title>Air Graffiti — Tight Fan + Presets Locked</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
   <style>
     :root { --bg:#0b0f18; --panel:rgba(0,0,0,.58); --fg:#fff; }
     html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-    canvas{display:block}
+    canvas{display:block;touch-action:none}
     .panel{
-      position:fixed;left:12px;top:12px;z-index:10;display:grid;gap:8px;padding:12px 14px;
-      background:var(--panel);backdrop-filter:blur(6px);border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:14px
+      position:fixed;left:12px;top:12px;z-index:10;display:grid;gap:10px;padding:12px 14px;
+      background:var(--panel);backdrop-filter:blur(6px);border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:14px;max-width:min(96vw,960px)
     }
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .grp{display:grid;gap:8px}
+    .grp>h4{margin:0;font-size:12px;letter-spacing:.04em;opacity:.9;text-transform:uppercase}
     label{opacity:.9}
-    select,input[type="color"],input[type="range"],button{
+    select,input[type="color"],input[type="range"],input[type="checkbox"],button{
       border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb;box-shadow:0 6px 16px rgba(0,0,0,.25)
     }
-    input[type="range"]{width:120px}
+    input[type="range"]{width:140px}
+    input[type="checkbox"]{width:auto;height:auto;padding:0;box-shadow:none;transform:translateY(1px)}
     button.action{background:#6ee7ff;color:#06121a;font-weight:800}
     button.warn{background:#ffd166;color:#241a05;font-weight:800}
     .hud{position:fixed;right:12px;bottom:12px;background:var(--panel);padding:10px 12px;border-radius:12px}
-    .overlay{
-      position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.78);z-index:20;text-align:center;padding:24px
-    }
-    .overlay>div{background:#111827;color:#fff;padding:20px;border-radius:16px;max-width:560px}
+    .overlay{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.78);z-index:20;text-align:left;padding:24px}
+    .card{background:#111827;color:#fff;padding:20px;border-radius:16px;max-width:760px}
     .hidden{display:none}
-    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#111;padding:2px 6px;border-radius:6px}
     input[type=file]{display:none}
+    .compact .adv{display:none}
+    .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#111;padding:2px 6px;border-radius:6px}
+    .spacer{flex:1}
+    .locknote{opacity:.8;font-size:12px}
+    @media (min-width: 768px) {
+      .panel { font-size: 15px; gap: 12px; }
+      select, input[type="color"], input[type="range"], input[type="checkbox"], button {
+        padding: 10px 12px; border-radius: 12px;
+      }
+      input[type="range"] { width: 180px; }
+    }
   </style>
 </head>
 <body>
 
-  <!-- Controls -->
-  <div class="panel">
+  <div class="panel compact" id="panelRoot">
     <div class="row">
-      <button id="modeBtn" class="action" title="Toggle Free-Air / Photo-Wall">Mode: <span id="modeLabel">Free-Air</span></button>
+      <button id="modeBtn" class="action">Mode: <span id="modeLabel">Free-Air</span></button>
       <button id="motionBtn">Enable Motion</button>
-      <button id="clearBtn" class="warn" title="Clear (Space)">Clear</button>
-      <button id="saveBtn" class="action" title="Save PNG">Save</button>
+      <button id="clearBtn" class="warn" title="Space">Clear</button>
+      <button id="saveBtn" class="action">Save</button>
+      <span class="spacer"></span>
+      <button id="menuBtn">Menu</button>
+      <button id="helpBtn">Help</button>
     </div>
-    <div class="row">
-      <label>Brush</label>
-      <select id="patternSel">
-        <option value="solid">Solid</option>
-        <option value="spray">Spray</option>
-        <option value="drip">Drip</option>
-      </select>
-      <label>Size</label>
-      <input id="sizeRange" type="range" min="2" max="48" value="12"/>
-      <label>Color</label>
-      <input id="colorPick" type="color" value="#6ee7ff"/>
+
+    <!-- Spray Can -->
+    <div class="grp">
+      <h4>Spray Can</h4>
+      <div class="row">
+        <label>Cap</label>
+        <select id="capSel" title="Choose a nozzle (cap)">
+          <option value="ultra_skinny" selected>Ultra Skinny (~0.4–1.5 cm)</option>
+          <option value="skinny">Skinny (~0.6–2.5 cm)</option>
+          <option value="medium">Medium (~1–4 cm)</option>
+          <option value="fat">Fat (~3–10 cm)</option>
+          <option value="super_fat">Super Fat (up to ~30 cm)</option>
+          <option value="custom">Custom (adjustable)</option>
+        </select>
+
+        <!-- ONLY visible in Custom -->
+        <span id="sizeFlowGroup" class="row" style="gap:8px;align-items:center;">
+          <label>Size</label>
+          <input id="sizeRange" type="range" min="4" max="64" value="14"/>
+          <label>Flow</label>
+          <input id="flowRange" type="range" min="1" max="100" value="36" title="Spray density/output"/>
+        </span>
+
+        <!-- Always visible -->
+        <label>Colour</label>
+        <input id="colorPick" type="color" value="#6ee7ff"/>
+      </div>
+
+      <!-- Nib Designer (Custom only; presets fully locked) -->
+      <div class="row adv" id="designerRow">
+        <label>Anisotropy</label>
+        <input id="anisoRange" type="range" min="0" max="100" value="0" title="0=circular, 100=wide fan"/>
+        <label>Fan Length</label>
+        <input id="fanLen" type="range" min="60" max="520" value="180" />
+        <label>Fan Thickness</label>
+        <input id="fanThick" type="range" min="1" max="42" value="6" />
+        <label>Core Hardness</label>
+        <input id="coreHard" type="range" min="0" max="100" value="35" title="0=soft, 100=hard"/>
+      </div>
+
+      <div class="row" id="lockRow">
+        <span class="locknote">Presets lock Size/Flow/Geometry. Only <b>Fan</b> and <b>Drip</b> can be added to presets. Choose <b>Custom</b> to edit geometry.</span>
+      </div>
+
+      <div class="row">
+        <!-- Drip (all caps) -->
+        <label class="row" style="gap:6px;">
+          <input type="checkbox" id="dripEnable"/>
+          Drip
+        </label>
+        <span id="dripRow" class="hidden">
+          <label>Strength</label>
+          <input id="dripStrength" type="range" min="0" max="100" value="45"/>
+        </span>
+
+        <!-- Fan (all caps) -->
+        <label class="row" style="gap:16px; margin-left:16px;">
+          <input type="checkbox" id="fanEnable"/>
+          Fan
+        </label>
+        <span id="fanRow" class="hidden">
+          <label>Strength</label>
+          <input id="fanStrength" type="range" min="0" max="100" value="0" title="0=round, 100=widest"/>
+          <label>Feather</label>
+          <input id="fanFeather" type="range" min="0" max="100" value="35" title="Edge softness across the fin"/>
+        </span>
+      </div>
     </div>
-    <div id="photoRow" class="row hidden">
-      <label>Photo-Wall</label>
-      <button id="loadBtn">Load Photo</button>
-      <label for="fileInput" class="action" style="cursor:pointer;">Upload / Camera</label>
-      <input id="fileInput" type="file" accept="image/*" capture="environment">
-      <small style="opacity:.8">Tip: use your wall photo or snap one now.</small>
+
+    <!-- Free-Air -->
+    <div id="freeRow" class="grp">
+      <h4>Free-Air</h4>
+      <div class="row">
+        <label>Background</label>
+        <input id="bgPick" type="color" value="#0b0f18"/>
+        <label>Fade</label>
+        <input id="fadeRange" type="range" min="0" max="40" value="12"/>
+      </div>
+    </div>
+
+    <!-- Photo-Wall -->
+    <div id="photoRow" class="grp hidden">
+      <h4>Photo-Wall</h4>
+      <div class="row">
+        <button id="loadBtn">Load Photo</button>
+        <label for="fileInput" class="action" style="cursor:pointer;">Upload / Camera</label>
+        <input id="fileInput" type="file" accept="image/*" capture="environment">
+      </div>
+      <div class="row">
+        <label>Zoom</label>
+        <input id="zoomRange" type="range" min="10" max="300" value="100" />
+        <button id="zoomOutBtn">−</button>
+        <button id="zoomInBtn">+</button>
+        <button id="fitBtn">Fit</button>
+        <button id="oneBtn">100%</button>
+        <span style="opacity:.8">Pan: <span class="kbd">Shift</span> + drag • pinch/drag</span>
+      </div>
     </div>
   </div>
 
   <!-- HUD -->
-  <div class="hud" id="hud">Status: <span id="status">no motion (drag to draw)</span><br>
+  <div class="hud" id="hud">Status: <span id="status">drag or Pencil to draw (motion optional)</span><br>
     β: <span id="b">—</span>, γ: <span id="g">—</span>, energy: <span id="en">—</span>
   </div>
 
-  <!-- Motion permission overlay for iOS -->
-  <div id="perm" class="overlay">
-    <div>
-      <h2>Enable Motion Access</h2>
-      <p>To paint with movement, your browser needs permission to read motion/orientation.</p>
-      <p>Tap <strong>Allow</strong> when prompted. If your device doesn’t support it, you can still draw by dragging.</p>
-      <p><button id="permBtn" class="action">Request Motion Permission</button></p>
+  <!-- Help overlay -->
+  <div id="help" class="overlay">
+    <div class="card">
+      <h2 style="margin-top:0">How to use</h2>
+      <ul>
+        <li><b>Presets</b> are round and locked; you can only add <b>Fan</b> or <b>Drip</b>.</li>
+        <li><b>Custom</b> shows Size/Flow and nib geometry sliders.</li>
+        <li><b>Fan</b>: width = Strength, edge = Feather. Fin rotates with device tilt (sprays horizontally).</li>
+        <li><b>Apple Pencil</b>: pressure controls size & flow.</li>
+        <li><b>Photo-Wall</b>: load a photo, pan (<span class="kbd">Shift</span>+drag) & zoom (wheel/pinch).</li>
+        <li><b>Shortcut</b>: <span class="kbd">Space</span> clears paint.</li>
+      </ul>
+      <p><button id="helpClose" class="action">Close</button></p>
     </div>
   </div>
 
   <script>
-    /* =========================
-       State & Config
-    ========================== */
-    let mode = 'free'; // 'free' or 'photo'
-    let bgImg = null;
-    let trail = [];
-    let lastP = null;
-    let px = null, py = null;      // smoothed cursor from orientation
-    let beta = null, gamma = null; // orientation angles
-    let energy = 0;                // motion energy estimate
-    let haveMotion = false;
-    let smoothing = 0.12;
-    let fadeAlpha = 12;            // canvas fade only for free mode
-    let brushColor = '#6ee7ff';
-    let brushSize = 12;
-    let pattern = 'solid';
-    let lastAcc = {x:0,y:0,z:0};
+    /* ========= State ========= */
+    let mode = 'free', bgImg = null;
+    let paintLayer, lastP = null;
 
-    /* =========================
-       p5 Setup / Loop
-    ========================== */
+    // direction smoothing (fallback)
+    let dirSmooth = 0, dirInit = false;
+
+    // device motion/orientation
+    let px=null, py=null, beta=null, gamma=null, energy=0, haveMotion=false;
+    const smoothing = 0.12;
+
+    // fan orientation locked to device tilt (supports iPad rotation)
+    let haveOrientAngle = false;
+    let orientAngle = 0;      // radians
+    const orientSmooth = 0.18;
+    const FAN_ORIENTATION_OFFSET = Math.PI/2; // +90° → spray horizontally; flip sign to invert
+
+    // Free-Air
+    let fadeAlpha = 12;
+    let freeBgColour = '#0b0f18';
+
+    // Nib basics (base values)
+    let brushSize = 14;
+    let flow = 36;
+    let brushColor = '#6ee7ff';
+
+    // Effective dynamics (pressure-modulated values)
+    let currentBrushSize = brushSize;
+    let currentFlow = flow;
+    let lastPressure = 0.6;
+
+    // Nib geometry
+    let anisotropy = 0;    // computed via fanEnabled/fanStrength or designer in Custom
+    let fanLength = 180;
+    let fanThickness = 6;
+    let coreHardness = 35;
+
+    // Drip (all caps)
+    let dripEnabled = false;
+    let dripStrength = 45;
+
+    // Fan (all caps)
+    let fanEnabled = false;
+    let fanStrength = 0;
+    let fanFeather = 35;   // 0=tight edges, 100=soft
+
+    // Locking (presets lock designer; Custom unlocks)
+    let controlsLocked = true;
+
+    // Photo transforms
+    let baseFitScale=1, zoomFactor=1, photoOffset={x:0,y:0}, pinchStart=null, isPanningMouse=false;
+
+    // Pointer (Apple Pencil / touch / mouse)
+    let pointerActive = false;
+    let canvasElt = null;
+
+    /* ========= Setup ========= */
     function setup(){
-      createCanvas(windowWidth, windowHeight);
+      const cnv = createCanvas(windowWidth, windowHeight);
+      canvasElt = cnv.elt;
+      paintLayer = createGraphics(windowWidth, windowHeight);
+      paintLayer.clear();
       clearCanvas();
       attachUI();
-      prepareMotion(); // sets up listeners or overlay
+      attachPointer();      // Apple Pencil / Pointer Events
+      applyCap('ultra_skinny'); // default
+      setControlsLocked(true);  // presets: hide Size/Flow & lock designer
+      prepareMotion();      // non-blocking; press "Enable Motion" to bind orientation
       updateHud();
     }
 
     function draw(){
-      // background / photo
-      if(mode === 'free'){
-        // subtle trailing fade in free-air mode
-        push();
-        noStroke(); fill(10,14,24, fadeAlpha); rect(0,0,width,height); pop();
+      if(mode==='free'){
+        push(); noStroke(); const c=color(freeBgColour); c.setAlpha(fadeAlpha); fill(c); rect(0,0,width,height); pop();
       }else{
-        // Photo mode: redraw the photo each frame (no fade)
-        if(bgImg){ image(bgImg, 0, 0, width, height); }
-        else { // no photo yet: soft checkerboard hint
-          drawChecker();
-        }
+        if(bgImg){ drawPhotoTransformed(); } else { drawChecker(); }
       }
+      image(paintLayer, 0, 0);
 
-      // draw trail (for solid pattern glow)
-      if(pattern === 'solid'){
-        push();
-        drawingContext.shadowBlur = 18;
-        drawingContext.shadowColor = hexToRgba(brushColor, 0.8);
-        strokeWeight(brushSize);
-        stroke(brushColor);
-        noFill();
-        for(let i=1;i<trail.length;i++){
-          const a = trail[i-1], b = trail[i];
-          line(a.x,a.y,b.x,b.y);
-        }
-        pop();
-      }
-
-      // Orientation-driven cursor
-      if(haveMotion && beta!=null && gamma!=null){
+      // Optional motion-controlled painting point (without pointer)
+      if(haveMotion && beta!=null && gamma!=null && !pointerActive){
         const tx = map(constrain(gamma,-60,60), -60,60, 0,width);
         const ty = map(constrain(beta,0,90), 0,90, 0,height);
-
         if(px==null||py==null){ px=tx; py=ty; }
         px += (tx - px) * smoothing;
         py += (ty - py) * smoothing;
-
-        paintAt(px, py);
-      }
-
-      // Trail budget
-      if(trail.length > 1200) trail.splice(0, trail.length - 1200);
-    }
-
-    function windowResized(){ resizeCanvas(windowWidth, windowHeight); if(bgImg){ fitBg(); } }
-
-    /* =========================
-       Painting & Patterns
-    ========================== */
-    function paintAt(x,y){
-      // accumulate a simple path for solid lines
-      if(pattern === 'solid'){
-        addPoint(x,y);
-      }else if(pattern === 'spray'){
-        // particle spray proportional to energy and brush size
-        const density = 12 + Math.floor(energy * 8);
-        for(let i=0;i<density;i++){
-          const r = random(brushSize*0.3, brushSize * (1.2 + energy*1.8));
-          const a = random(TWO_PI);
-          const sx = x + r * Math.cos(a);
-          const sy = y + r * Math.sin(a);
-          sprayDot(sx, sy, 0.55 + Math.random()*0.45);
-        }
-      }else if(pattern === 'drip'){
-        // solid core + occasional drips when energy low
-        addPoint(x,y);
-        if(random() < 0.08 && energy < 0.6){
-          let len = random(brushSize*1.5, brushSize*4);
-          drip(x,y,len);
-        }
+        sprayAt(px, py, null); // neutral pressure
       }
     }
 
-    function addPoint(x,y){
+    function windowResized(){
+      resizeCanvas(windowWidth, windowHeight);
+      const newLayer = createGraphics(windowWidth, windowHeight);
+      newLayer.clear();
+      if(paintLayer) newLayer.image(paintLayer, 0, 0, windowWidth, windowHeight);
+      paintLayer = newLayer;
+      if(bgImg){ computeBaseFit(); drawPhotoTransformed(); }
+    }
+
+    /* ===== Photo helpers ===== */
+    function computeBaseFit(){ if(!bgImg) return; baseFitScale = Math.min(width/bgImg.width, height/bgImg.height)||1; }
+    function drawPhotoTransformed(){
+      drawChecker();
+      push(); translate(width/2+photoOffset.x, height/2+photoOffset.y);
+      scale(baseFitScale*zoomFactor); imageMode(CENTER); image(bgImg,0,0); pop();
+    }
+    function screenToPhoto(x,y){
+      const sx = x - (width/2 + photoOffset.x), sy = y - (height/2 + photoOffset.y);
+      const s = baseFitScale * zoomFactor; return {x: sx/s, y: sy/s};
+    }
+
+    /* ====== Dynamics (Apple Pencil pressure) ====== */
+    function setDynamicsForPressure(p){
+      const pr = (p==null || isNaN(p)) ? 0.6 : Math.max(0, Math.min(1, p));
+      lastPressure = pr;
+      // Scale feels: size 60%..140%, flow 40%..120%
+      currentBrushSize = brushSize * (0.6 + 0.8*pr);
+      currentFlow      = flow      * (0.4 + 0.8*pr);
+    }
+
+    /* ====== Spray Can rendering ====== */
+    function sprayAt(x,y, pressure=null){
+      setDynamicsForPressure(pressure);
       const p = createVector(x,y);
       if(lastP){
-        const steps = max(1, int(p5.Vector.dist(p,lastP)/4));
+        const steps = Math.max(1, int(p5.Vector.dist(p,lastP)/4));
         for(let i=1;i<=steps;i++){
           const t = i/steps;
           const q = p5.Vector.lerp(lastP,p,t);
-          trail.push(q);
-          // also stamp a soft dot for richer stroke
-          softDot(q.x,q.y, 0.15);
+          const dir = Math.atan2(q.y - lastP.y, q.x - lastP.x);
+          smoothDir(dir);
+
+          const anisoUse = effectiveAnisotropy();
+          const useAngle = chooseSprayAngle(anisoUse > 10);
+
+          if(anisoUse>1) doSprayCloudAnisoTight(q.x, q.y, useAngle, anisoUse);
+          else           doSprayCloudRound(q.x, q.y);
+
+          if(anisoUse>10) stampFan(q.x, q.y, useAngle);
+          else            stampRoundCore(q.x, q.y);
+
+          if(dripEnabled && Math.random() < dripChance()){
+            drawDrip(q.x, q.y, dripLen(), dripThick());
+          }
         }
       }else{
-        trail.push(p);
+        smoothDir(0);
+        const anisoUse = effectiveAnisotropy();
+        const useAngle = chooseSprayAngle(anisoUse > 10);
+
+        if(anisoUse>1) doSprayCloudAnisoTight(p.x, p.y, useAngle, anisoUse);
+        else           doSprayCloudRound(p.x, p.y);
+
+        if(anisoUse>10) stampFan(p.x, p.y, useAngle);
+        else            stampRoundCore(p.x, p.y);
+
+        if(dripEnabled && Math.random() < dripChance()){
+            drawDrip(p.x, p.y, dripLen(), dripThick());
+        }
       }
       lastP = p;
     }
 
-    function softDot(x,y, alpha=0.25){
-      push();
-      noStroke();
-      const c = color(brushColor);
-      c.setAlpha(255*alpha);
-      fill(c);
-      circle(x,y, brushSize*0.9);
-      pop();
+    // Angle: fan follows device tilt; offset by +90° so it "sprays horizontally"
+    function chooseSprayAngle(wantFan){
+      if(wantFan && haveOrientAngle) return orientAngle + FAN_ORIENTATION_OFFSET;
+      return dirSmooth + FAN_ORIENTATION_OFFSET; // fallback
+    }
+
+    // Direction smoothing for fallback
+    function smoothDir(newDir){
+      if(!dirInit){ dirSmooth = newDir; dirInit = true; return; }
+      let d = normalizeAngle(newDir - dirSmooth);
+      dirSmooth = dirSmooth + d * 0.25;
+    }
+    function normalizeAngle(a){
+      while(a >  Math.PI) a -= TWO_PI;
+      while(a < -Math.PI) a += TWO_PI;
+      return a;
+    }
+
+    function doSprayCloudRound(x,y){
+      const density = Math.round(map(currentFlow, 1,100, 6, 36)) + Math.floor(energy*8);
+      for(let i=0;i<density;i++){
+        const r = random(currentBrushSize*0.25, currentBrushSize * (1.1 + energy*0.8));
+        const a = random(TWO_PI);
+        sprayDot(x + r*Math.cos(a), y + r*Math.sin(a), 0.40 + Math.random()*0.40);
+      }
+    }
+
+    // Tight fan: truncated ellipse with feathered edges, aligned with fin
+    function doSprayCloudAnisoTight(x,y,dir,anisoVal){
+      const stretch = map(anisoVal, 0,100, 1.2, 3.6);
+      const major = Math.max(currentBrushSize*0.9, fanLength*0.40) * stretch;   // along fin
+      const minor = Math.max(currentBrushSize*0.30, fanThickness*0.85);         // across fin
+      const ux = Math.cos(dir), uy = Math.sin(dir);
+      const vx = -uy, vy = ux;
+
+      const baseDensity = map(currentFlow, 1,100, 10, 42);
+      const density = Math.round(baseDensity + energy*8);
+
+      const feather = 0.2 + (fanFeather/100)*0.8;  // 0.2..1.0 (tight..soft)
+      const tryLimit = 5;
+
+      for(let i=0;i<density;i++){
+        let a, b, tries=0;
+        do{
+          a = randomGaussian(0, 0.33);
+          b = randomGaussian(0, 0.28);
+          tries++;
+        }while((a*a + b*b > 1.0) && tries<tryLimit);
+
+        const sx = x + (a*major)*ux + (b*minor)*vx;
+        const sy = y + (a*major)*uy + (b*minor)*vy;
+
+        const edge = Math.min(1, Math.abs(b));
+        const fall = smoothstep(1.0, feather, 1.0 - edge); // center→edge fade
+        const alpha = (0.25 + 0.35*fall) * (0.8 + 0.4*lastPressure);
+
+        sprayDot(sx, sy, alpha);
+      }
+    }
+
+    function smoothstep(edge0, edge1, x){
+      const t = constrain((x - edge0) / (edge1 - edge0), 0, 1);
+      return t*t*(3 - 2*t);
+    }
+
+    function stampRoundCore(x,y){
+      paintLayer.noStroke();
+      const hard = coreHardness/100;
+      const baseA = lerp(0.18, 0.70, hard);
+      const c = color(brushColor); c.setAlpha(255*baseA);
+      paintLayer.fill(c);
+      paintLayer.circle(x,y, currentBrushSize * lerp(0.95, 0.60, hard));
+    }
+    function stampFan(x,y,dir){
+      paintLayer.push(); paintLayer.translate(x,y); paintLayer.rotate(dir); paintLayer.noStroke();
+      const hard = coreHardness/100;
+
+      const halo = color(brushColor); halo.setAlpha(28);
+      paintLayer.fill(halo); paintLayer.rectMode(CENTER);
+      paintLayer.rect(0, 0, fanLength*1.04, Math.max(1, fanThickness*1.4), Math.max(1, fanThickness*0.7));
+
+      for(let i=0;i<2;i++){
+        const len = fanLength * (1 + (i?0.05:0));
+        const th  = fanThickness * (1 + (i?0.45:0));
+        const alpha = lerp(0.08, 0.22, 1 - hard) * (i?1:0.6);
+        const c = color(brushColor); c.setAlpha(255*alpha);
+        paintLayer.fill(c); paintLayer.rectMode(CENTER);
+        paintLayer.rect(0, 0, len, th, th*0.6);
+      }
+      const core = color(brushColor); core.setAlpha(255*lerp(0.45,0.80, hard));
+      paintLayer.fill(core); paintLayer.rectMode(CENTER);
+      paintLayer.rect(0, 0, fanLength, Math.max(1, fanThickness*0.6), Math.max(1, fanThickness*0.4));
+      paintLayer.pop();
     }
 
     function sprayDot(x,y, alpha=0.8){
-      push();
-      noStroke();
-      const c = color(brushColor);
-      c.setAlpha(255*alpha);
-      fill(c);
-      const d = random(brushSize*0.08, brushSize*0.35);
-      circle(x,y,d);
-      pop();
+      paintLayer.noStroke();
+      const c = color(brushColor); c.setAlpha(255*alpha);
+      paintLayer.fill(c);
+      const d = random(currentBrushSize*0.08, currentBrushSize*0.30);
+      paintLayer.circle(x,y,d);
     }
 
-    function drip(x,y,len){
-      push();
-      stroke(brushColor);
-      strokeWeight(max(2, brushSize*0.15));
-      line(x,y, x, y+len);
-      // drip head
-      noStroke(); fill(brushColor);
-      circle(x, y+len, max(2, brushSize*0.35));
-      pop();
+    /* ===== Drips ===== */
+    function dripChance(){ return constrain(0.01 + dripStrength*0.003 + energy*0.08, 0, 0.30); }
+    function dripLen(){
+      const mul = 0.8 + 0.022 * dripStrength, em = 1.0 + energy * 1.3;
+      return random(currentBrushSize*1.2, currentBrushSize*3.8) * mul * em;
+    }
+    function dripThick(){ return Math.max(2, currentBrushSize * (0.08 + 0.006 * dripStrength)); }
+    function drawDrip(x,y,len,thick){
+      paintLayer.push();
+      paintLayer.stroke(brushColor); paintLayer.strokeWeight(thick);
+      paintLayer.line(x,y, x, y+len);
+      paintLayer.noStroke(); paintLayer.fill(brushColor);
+      paintLayer.circle(x, y+len, Math.max(2, thick*0.7));
+      paintLayer.pop();
     }
 
-    /* =========================
-       Motion & Energy
-    ========================== */
+    /* ===== Fan logic (all caps) ===== */
+    function effectiveAnisotropy(){
+      if(!fanEnabled) return 0;
+      const flowBoost = map(currentFlow, 0,100, 0, 10);
+      let val = constrain(fanStrength + flowBoost, 0, 100);
+      if(!controlsLocked){
+        const slider = parseInt(document.getElementById('anisoRange').value, 10) || 0;
+        val = Math.max(val, slider);
+      }
+      return val;
+    }
+
+    /* ===== iPad-friendly orientation mapping ===== */
+    function getScreenAngle(){
+      if (typeof window.orientation === 'number') return window.orientation; // 0, 90, -90, 180 (Safari)
+      const a = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : 0;
+      return ((a + 540) % 360) - 180; // (-180..180]
+    }
+    function tiltToRadians(beta, gamma){
+      const ang = getScreenAngle();
+      let deg;
+      if (ang === 0)                           deg = gamma;      // portrait
+      else if (ang === 90)                     deg = beta;       // landscape right
+      else if (ang === -90 || ang === 270)     deg = -beta;      // landscape left
+      else                                      deg = -gamma;     // portrait upside down
+      return radians(deg || 0);
+    }
+
+    /* ===== Motion / Orientation (non-blocking) ===== */
     function prepareMotion(){
-      // Energy via devicemotion (acceleration including gravity)
+      document.getElementById('motionBtn').addEventListener('click', async ()=>{
+        try{
+          if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
+            const res = await DeviceOrientationEvent.requestPermission();
+            if(res !== 'granted'){ updateStatus('motion denied'); return; }
+          }
+          attachOrientation();
+          updateStatus('motion enabled');
+        }catch(err){
+          updateStatus('motion error');
+        }
+      });
+
       if('ondevicemotion' in window){
+        let lastAcc={x:0,y:0,z:0};
         window.addEventListener('devicemotion', (e)=>{
           if(!e.accelerationIncludingGravity) return;
           const a = e.accelerationIncludingGravity;
-          // simple jerk-based energy (difference vs last sample)
-          const jx = a.x - lastAcc.x, jy = a.y - lastAcc.y, jz = a.z - lastAcc.z;
-          lastAcc = {x:a.x||0,y:a.y||0,z:a.z||0};
-          const mag = Math.sqrt(jx*jx + jy*jy + jz*jz);
-          // low-pass into 0..1 range
+          const jx=(a.x||0)-lastAcc.x, jy=(a.y||0)-lastAcc.y, jz=(a.z||0)-lastAcc.z;
+          lastAcc={x:a.x||0,y:a.y||0,z:a.z||0};
+          const mag = Math.sqrt(jx*jx + jy*jy + jz*jz);  // ← fixed typo here
           energy += (Math.min(1, mag/3) - energy) * 0.2;
           updateHud();
         }, {passive:true});
       }
-
-      // Orientation permission
-      const needPerm = typeof DeviceOrientationEvent !== 'undefined'
-        && typeof DeviceOrientationEvent.requestPermission === 'function';
-      if(needPerm){
-        // show overlay on button click from UI instead
-        document.getElementById('perm').style.display = 'none';
-      }else{
-        attachOrientation();
-      }
-    }
-
-    function requestMotionPermission(){
-      if(typeof DeviceOrientationEvent === 'undefined' ||
-         typeof DeviceOrientationEvent.requestPermission !== 'function'){
-        // nothing to request
-        attachOrientation();
-        return;
-      }
-      const overlay = document.getElementById('perm');
-      overlay.style.display = 'grid';
-      document.getElementById('permBtn').onclick = async ()=>{
-        try{
-          const r = await DeviceOrientationEvent.requestPermission();
-          overlay.style.display = 'none';
-          if(r === 'granted') attachOrientation();
-          else updateStatus('permission denied (drag to draw)');
-        }catch{
-          overlay.style.display = 'none';
-          updateStatus('permission failed (drag to draw)');
-        }
-      };
     }
 
     function attachOrientation(){
       window.addEventListener('deviceorientation', (ev)=>{
-        if(ev.beta==null || ev.gamma==null) return;
-        beta = ev.beta; gamma = ev.gamma; haveMotion = true; updateHud();
-      }, {passive:true});
-    }
+        if (ev.gamma != null) gamma = ev.gamma;
+        if (ev.beta  != null) beta  = ev.beta;
 
-    /* =========================
-       Photo-Wall
-    ========================== */
-    function loadPhotoFromFile(file){
-      const reader = new FileReader();
-      reader.onload = e => {
-        loadImage(e.target.result, (img)=>{
-          bgImg = img; fitBg(); clearPaintingOnly();
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-
-    function fitBg(){
-      // p5 image will be drawn scaled to canvas in draw()
-      // here we could pre-scale to optimize, but p5 handles it.
-    }
-
-    function drawChecker(){
-      const s = 40;
-      noStroke();
-      for(let y=0;y<height;y+=s){
-        for(let x=0;x<width;x+=s){
-          const odd = ((x+y)/s) % 2 === 0;
-          fill(odd? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)');
-          rect(x,y,s,s);
+        if (ev.beta != null || ev.gamma != null) {
+          const target = tiltToRadians(ev.beta, ev.gamma);
+          const delta = normalizeAngle(target - orientAngle);
+          orientAngle = orientAngle + delta * orientSmooth;
+          haveOrientAngle = true;
+          haveMotion = true;
+          updateHud();
         }
-      }
+      }, {passive:true});
+
+      window.addEventListener('orientationchange', ()=>{
+        if (beta != null || gamma != null) {
+          const target = tiltToRadians(beta, gamma);
+          const delta = normalizeAngle(target - orientAngle);
+          orientAngle = orientAngle + delta * 0.6; // faster snap on rotate
+        }
+      });
     }
 
-    /* =========================
-       Mouse / Touch fallback
-    ========================== */
-    function mouseDragged(){ paintAt(mouseX, mouseY); }
-    function touchMoved(){ paintAt(touchX, touchY); return false; }
+    /* ===== Pointer (Apple Pencil / touch / mouse) ===== */
+    function attachPointer(){
+      if(!canvasElt) return;
 
-    /* =========================
-       UI Wiring
-    ========================== */
+      const getXY = (e)=>{
+        const r = canvasElt.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+      };
+
+      canvasElt.addEventListener('pointerdown', (e)=>{
+        pointerActive = true;
+        canvasElt.setPointerCapture(e.pointerId);
+        const {x,y} = getXY(e);
+        sprayAt(x, y, e.pressure);
+        e.preventDefault();
+      }, {passive:false});
+
+      canvasElt.addEventListener('pointermove', (e)=>{
+        if(!pointerActive) return;
+        const {x,y} = getXY(e);
+        sprayAt(x, y, e.pressure);
+        e.preventDefault();
+      }, {passive:false});
+
+      const end = (e)=>{
+        pointerActive = false;
+        lastP = null;
+        e.preventDefault();
+      };
+      canvasElt.addEventListener('pointerup', end, {passive:false});
+      canvasElt.addEventListener('pointercancel', end, {passive:false});
+      canvasElt.addEventListener('pointerout', end, {passive:false});
+      canvasElt.addEventListener('pointerleave', end, {passive:false});
+    }
+
+    /* ===== UI ===== */
     function attachUI(){
-      const modeBtn = document.getElementById('modeBtn');
+      const panelRoot = document.getElementById('panelRoot');
+
+      const modeBtn   = document.getElementById('modeBtn');
       const modeLabel = document.getElementById('modeLabel');
-      const photoRow = document.getElementById('photoRow');
+      const photoRow  = document.getElementById('photoRow');
+      const freeRow   = document.getElementById('freeRow');
+
+      const capSel    = document.getElementById('capSel');
       const sizeRange = document.getElementById('sizeRange');
+      const flowRange = document.getElementById('flowRange');
       const colorPick = document.getElementById('colorPick');
-      const patternSel = document.getElementById('patternSel');
+
+      const anisoRange = document.getElementById('anisoRange');
+      const fanLenEl   = document.getElementById('fanLen');
+      const fanThickEl = document.getElementById('fanThick');
+      const coreHardEl = document.getElementById('coreHard');
+
+      const dripEnable = document.getElementById('dripEnable');
+      const dripStrengthEl = document.getElementById('dripStrength');
+
+      const fanEnable = document.getElementById('fanEnable');
+      const fanStrengthEl = document.getElementById('fanStrength');
+      const fanFeatherEl = document.getElementById('fanFeather');
+
+      const bgPick = document.getElementById('bgPick');
+      const fadeRange = document.getElementById('fadeRange');
       const fileInput = document.getElementById('fileInput');
+      const zoomRange = document.getElementById('zoomRange');
+      const zoomInBtn = document.getElementById('zoomInBtn');
+      const zoomOutBtn = document.getElementById('zoomOutBtn');
+      const fitBtn = document.getElementById('fitBtn');
+      const oneBtn = document.getElementById('oneBtn');
 
       document.getElementById('clearBtn').onclick = clearCanvas;
-      document.getElementById('saveBtn').onclick = ()=>saveCanvas('kinetic-graffiti','png');
-      document.getElementById('motionBtn').onclick = requestMotionPermission;
+      document.getElementById('saveBtn').onclick  = ()=>saveCanvas('spray-can','png');
 
-      document.getElementById('loadBtn').onclick = ()=> fileInput.click();
-      fileInput.addEventListener('change', (e)=>{
-        if(e.target.files && e.target.files[0]) loadPhotoFromFile(e.target.files[0]);
-      });
+      document.getElementById('loadBtn')?.addEventListener('click', ()=> fileInput.click());
+      fileInput?.addEventListener('change', (e)=>{ if(e.target.files && e.target.files[0]) loadPhotoFromFile(e.target.files[0]); });
 
       modeBtn.onclick = ()=>{
         mode = (mode === 'free') ? 'photo' : 'free';
         modeLabel.textContent = (mode==='free'?'Free-Air':'Photo-Wall');
         photoRow.classList.toggle('hidden', mode!=='photo');
-        clearPaintingOnly(); // keep photo if in photo mode
-        updateHud();
+        freeRow.classList.toggle('hidden', mode!=='free');
+        clearPaintingOnly(); updateHud();
       };
 
-      sizeRange.oninput = e => brushSize = parseInt(e.target.value, 10);
+      capSel.oninput = e => {
+        const id = e.target.value;
+        applyCap(id);
+        setControlsLocked(id !== 'custom');     // presets locked; only Fan/Drip allowed
+        reflectDesignerInteractivity();
+      };
+
+      // base controls
+      sizeRange.oninput = e => brushSize = parseInt(e.target.value,10);
+      flowRange.oninput = e => flow = parseInt(e.target.value,10);
       colorPick.oninput = e => brushColor = e.target.value;
-      patternSel.oninput = e => pattern = e.target.value;
 
-      // keyboard
-      window.addEventListener('keydown', (e)=>{
-        if(e.key === ' ') { e.preventDefault(); clearCanvas(); }
+      // designer (active in Custom)
+      anisoRange.oninput = e => anisotropy = parseInt(e.target.value,10);
+      fanLenEl.oninput   = e => fanLength = parseInt(e.target.value,10);
+      fanThickEl.oninput = e => fanThickness = parseInt(e.target.value,10);
+      coreHardEl.oninput = e => coreHardness = parseInt(e.target.value,10);
+
+      // effects (all caps)
+      dripEnable.oninput = e => { dripEnabled = e.target.checked; toggleRow('dripRow', dripEnabled); };
+      dripStrengthEl.oninput = e => dripStrength = parseInt(e.target.value,10);
+
+      fanEnable.oninput = e => { fanEnabled = e.target.checked; toggleRow('fanRow', fanEnabled); reflectDesignerInteractivity(); };
+      fanStrengthEl.oninput = e => { fanStrength = parseInt(e.target.value,10); if(!controlsLocked) anisoRange.value = fanStrength; };
+      fanFeatherEl.oninput = e => { fanFeather = parseInt(e.target.value,10); };
+
+      // free-air
+      bgPick.oninput = e => { freeBgColour = e.target.value; };
+      fadeRange.oninput = e => { fadeAlpha = parseInt(e.target.value,10); };
+
+      // zoom/pan
+      zoomRange.oninput = e => { zoomFactor = parseInt(e.target.value,10)/100; syncZoomUI(false); };
+      zoomInBtn.onclick = ()=>{ zoomFactor = clamp(0.1,3.0,zoomFactor*1.15); syncZoomUI(); };
+      zoomOutBtn.onclick = ()=>{ zoomFactor = clamp(0.1,3.0,zoomFactor/1.15); syncZoomUI(); };
+      fitBtn.onclick = ()=>{ computeBaseFit(); photoOffset={x:0,y:0}; zoomFactor=1; syncZoomUI(); };
+      oneBtn.onclick = ()=>{ computeBaseFit(); zoomFactor = clamp(0.1,3.0,1/baseFitScale); photoOffset={x:0,y:0}; syncZoomUI(); };
+
+      document.getElementById('menuBtn').onclick = ()=>{ panelRoot.classList.toggle('compact'); };
+      document.getElementById('helpBtn').onclick = ()=>{ document.getElementById('help').style.display='grid'; };
+      document.getElementById('helpClose').onclick = ()=>{ document.getElementById('help').style.display='none'; };
+
+      window.addEventListener('keydown', (e)=>{ if(e.key===' '){ e.preventDefault(); clearCanvas(); } });
+
+      // initial effect panels
+      toggleRow('dripRow', false);
+      toggleRow('fanRow', false);
+      reflectDesignerInteractivity();
+
+      // Start in presets mode → hide Size/Flow group
+      setControlsLocked(true);
+    }
+
+    function reflectDesignerInteractivity(){
+      const isLocked = controlsLocked;
+      const fanOn = fanEnabled;
+
+      // geometry sliders are disabled unless Custom AND Fan ON
+      const idsBase = ['coreHard'];
+      const idsFan  = ['anisoRange','fanLen','fanThick','fanFeather'];
+
+      idsBase.forEach(id => { const el=document.getElementById(id); if(el) el.disabled = isLocked; });
+      idsFan.forEach(id  => { const el=document.getElementById(id); if(el) el.disabled = isLocked || !fanOn; });
+
+      if(!isLocked){
+        const an = document.getElementById('anisoRange');
+        if(an && fanOn) an.value = fanStrength; else if(an && !fanOn) an.value = 0;
+      }
+    }
+
+    function toggleRow(id, show){ document.getElementById(id).classList.toggle('hidden', !show); }
+
+    function setControlsLocked(locked){
+      controlsLocked = locked;
+
+      // Hide Size/Flow when locked (presets). Show in Custom.
+      const sfg = document.getElementById('sizeFlowGroup');
+      if (sfg) sfg.classList.toggle('hidden', locked);
+
+      // Also disable sliders for keyboard users
+      ['sizeRange','flowRange'].forEach(id => {
+        const el=document.getElementById(id);
+        if(el) el.disabled = locked;
       });
+
+      document.getElementById('lockRow').style.display = locked ? 'flex' : 'none';
+      const designer = document.getElementById('designerRow');
+      if(designer) designer.style.opacity = locked ? 0.6 : 1;
     }
 
-    function clearCanvas(){
-      background(10,14,24);
-      if(mode==='photo' && bgImg){ image(bgImg,0,0,width,height); }
-      trail = []; lastP = null;
+    function syncZoomUI(updateSlider=true){
+      const z = Math.round(zoomFactor*100);
+      if(updateSlider){ const zr=document.getElementById('zoomRange'); if(zr) zr.value=z; }
     }
 
-    function clearPaintingOnly(){
-      // Clears the strokes but keeps the photo / bg intact
-      background(10,14,24);
-      if(mode==='photo' && bgImg){ image(bgImg,0,0,width,height); }
-      trail = []; lastP = null;
+    /* ===== Cap mappings (presets round by default) ===== */
+    function applyCap(id){
+      const C={
+        ultra_skinny:{ size:10, flow:18, hard:70, len:120, thick:3  },
+        skinny:      { size:13, flow:26, hard:60, len:160, thick:5  },
+        medium:      { size:16, flow:34, hard:45, len:190, thick:7  },
+        fat:         { size:22, flow:58, hard:40, len:280, thick:12 },
+        super_fat:   { size:30, flow:88, hard:30, len:400, thick:16 }
+      };
+      if(id==='custom'){ return; }
+      const p=C[id]; if(!p) return;
+
+      brushSize=p.size; flow=p.flow; coreHardness=p.hard;
+      fanLength=p.len; fanThickness=p.thick;
+
+      // Presets are ROUND first (fan off)
+      fanEnabled = false; fanStrength = 0; anisotropy = 0;
+      const fe=document.getElementById('fanEnable'), fs=document.getElementById('fanStrength');
+      if(fe) fe.checked=false; if(fs) fs.value=0; toggleRow('fanRow', false);
+
+      // Reflect UI
+      document.getElementById('sizeRange').value = brushSize;
+      document.getElementById('flowRange').value = flow;
+      document.getElementById('coreHard').value = coreHardness;
+      document.getElementById('fanLen').value = fanLength;
+      document.getElementById('fanThick').value = fanThickness;
     }
 
-    /* =========================
-       HUD / Helpers
-    ========================== */
-    function updateHud(){
-      document.getElementById('status').textContent = haveMotion ? 'motion active' : 'no motion (drag to draw)';
-      document.getElementById('b').textContent = (beta==null?'—':beta.toFixed(1));
-      document.getElementById('g').textContent = (gamma==null?'—':gamma.toFixed(1));
-      document.getElementById('en').textContent = energy.toFixed(2);
-    }
-    function updateStatus(msg){
-      document.getElementById('status').textContent = msg;
-    }
-    function hexToRgba(hex, alpha){
-      const c = color(hex); c.setAlpha(255*alpha); return c.toString();
-    }
+    /* ===== Helpers ===== */
+    function clearCanvas(){ (mode==='photo' && bgImg) ? (background(0), drawPhotoTransformed()) : background(freeBgColour); paintLayer.clear(); lastP=null; }
+    function clearPaintingOnly(){ (mode==='photo' && bgImg) ? (background(0), drawPhotoTransformed()) : background(freeBgColour); paintLayer.clear(); lastP=null; }
+    function updateHud(){ document.getElementById('status').textContent = haveMotion?'motion ready (pointer works too)':'drag or Pencil to draw'; document.getElementById('b').textContent=(beta==null?'—':beta.toFixed(1)); document.getElementById('g').textContent=(gamma==null?'—':gamma.toFixed(1)); document.getElementById('en').textContent=energy.toFixed(2); }
+    function updateStatus(msg){ document.getElementById('status').textContent = msg; }
+    function drawChecker(){ const s=40; noStroke(); for(let y=0;y<height;y+=s){ for(let x=0;x<width;x+=s){ const odd=((x+y)/s)%2===0; fill(odd?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.02)'); rect(x,y,s,s);} } }
+    function loadPhotoFromFile(file){ const reader=new FileReader(); reader.onload=e=>{ loadImage(e.target.result,(img)=>{ bgImg=img; computeBaseFit(); zoomFactor=1; photoOffset={x:0,y:0}; clearPaintingOnly(); syncZoomUI(); }); }; reader.readAsDataURL(file); }
   </script>
 </body>
 </html>
