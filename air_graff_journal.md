@@ -1,3 +1,10 @@
+I acknowledge the use of ChatGPT in this assessment.
+The resulting output was used for brainstorming ideas and receiving help to guide my work.
+I confirm that the extent of the use of AI in this assessment is limited to the conditions specified above.
+
+
+
+
 # Air Graffiti — Journal Entry 1
 
 **Project:** Air Graffiti  
@@ -18,10 +25,6 @@ This week, I kicked off my project idea for Air Graffiti. The core concept is a 
 
 - Prototype the motion-to-paint mapping and test it on a basic canvas.
 - Implement a simple interface to switch between a blank canvas and a photo background.
-
-
-
-
 
 # Air Graffiti — Journal Entry 2
 
@@ -64,7 +67,35 @@ In my third week, I’ve brought almost all the pieces together. The camera and 
 - Troubleshoot iPhone motion sensor connectivity further and ensure consistent access in both Chrome and Safari.
 - Finalise and test the save functionality so users can easily download their finished graffiti images.
 
+## Air Graffiti - Journal Entry 6 — Advanced Spray and Drip Effects
 
-I acknowledge the use of ChatGPT in this assessment.
-The resulting output was used for brainstorming ideas and receiving help to guide my work.
-I confirm that the extent of the use of AI in this assessment is limited to the conditions specified above.
+I focused on improving the realism of the spray patterns.
+I experimented with different “nibs” to simulate how a real spray can behaves — starting with solid, spray, and fan patterns. I developed a drip effect that reacts to paint flow, allowing heavier sprays to form trails that run down the surface.
+Getting this balance right took time; I wanted drips to look random but still respond naturally to spray density. By adjusting flow rate and spread, the drips started to behave in a believable way. This feature became one of the most distinctive parts of the project.
+
+## Air Graffiti - Journal Entry 7 — Custom Nibs and Cap Presets
+
+After refining the spray physics, I added the option to select different spray caps.
+Each cap type — Ultra Skinny, Skinny, Medium, Fat, and Super Fat — controls both the line width and flow output, similar to how aerosol caps work in real life.
+I then created a Custom Nib mode so users can manually adjust size, flow, drip, and fan strength. This gave the painter a realistic range of control while keeping the interface simple.
+I also cleaned up the menu so that size and flow sliders only appear when using the custom cap, preventing unnecessary clutter.
+
+## Air Graffiti - Journal Entry 8 — UI Optimisation for Mobile and Tablets
+
+I reworked the interface to make it functional on phones and iPads.
+I found that the control sliders and buttons were taking up too much screen space when painting, so I added collapsible panels and replaced text labels with icons. The colour picker was converted into a circular swatch button that opens the native colour selector when tapped — improving performance on iOS Safari.
+These changes made the app more practical for touch-based use and much cleaner visually. It now scales and adapts automatically to different device sizes.
+
+## Air Graffiti - Journal Entry 9 — AR and Motion Tracking Experiments
+
+My main goal was to get the painting to appear in real-world space instead of a flat canvas.
+I built a new version using Three.js and tested both WebXR and 8th Wall for surface detection. The idea was to allow the phone to track walls or flat planes so that the spray would stick to them as the user moved.
+I managed to get this working on Android through WebXR, but Safari on iPhone doesn’t support AR hit-tests natively. I began setting up 8th Wall (which supports iOS), but couldn’t complete the configuration in time for full integration.
+Even so, these tests confirmed that the concept is achievable with the right SDK.
+
+## Air Graffiti - Journal Entry 10 — Final Testing and Reflection
+
+I focused on polish and reliability.
+I refined the fan strength control so that spray width grows gradually from the centre of the nib, improved the feathering for softer edges, and stabilised the colour picker for mobile devices. I also tested a background colour selector so both Free-Air and Photo-Wall modes use the same visual style.
+While I couldn’t fully implement the 8th Wall AR system, I did build a partial working simulation of what the feature would do. The finished version will successfully represents how motion, paint flow, and fan dynamics interact in a digital graffiti environment.
+If I had more time, I’d finalise the AR wall tracking and link the GPS location to each artwork.

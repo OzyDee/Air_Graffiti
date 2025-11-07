@@ -1,464 +1,981 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!--
-    AR Graffiti MVP — WebXR Hit-Test + Hold-to-Spray + GPS + Fallback
-    -----------------------------------------------------------------
-    What it does:
-      • Starts an immersive-AR session (if supported) with hit-test to find a wall/floor.
-      • Shows a reticle; while you hold the SPRAY button, we stamp semi-transparent
-        "paint dots" (sprites) at the reticle pose so the paint sticks to the surface.
-      • Lets you pick colour & size; Save Snapshot (PNG) and Save Metadata (JSON incl. GPS).
-      • If WebXR AR isn't available, falls back to a simple 2D photo painter.
 
-    Extend later:
-      • Swap the sprite dot with your fan/drip brush textures.
-      • Add layer system (per-surface group), cap presets, fan-strength, and pressure.
-      • Persist anchors via a WebAR SDK (8th Wall / Lightship VPS) or go native (ARKit/ARCore).
-
-    Requirements:
-      • Serve over HTTPS (or localhost).
-      • Chrome/Android for WebXR AR; iOS Safari will use the 2D fallback.
-  -->
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-  <title>AR Graffiti MVP</title>
-
+  <title>Air Graffiti — Finalise + Movement</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
   <style>
-    :root { --panel: rgba(0,0,0,.58); --accent:#6ee7ff; --fg:#fff; }
-    html, body { margin:0; height:100%; background:#0b0f18; color:var(--fg); font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-    #overlay {
-      position:fixed; inset:0; display:flex; flex-direction:column; justify-content:space-between; pointer-events:none;
+    :root{--bg:#0b0f18;--fg:#fff;--panel:rgba(0,0,0,.65);--accent:#6ee7ff;}
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    canvas{display:block;touch-action:none}
+
+    .toolbar{
+      position:fixed;top:10px;left:10px;z-index:30;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+      background:var(--panel);backdrop-filter:blur(6px);padding:8px 10px;border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.45)
     }
-    .topbar, .bottombar {
-      display:flex; gap:8px; align-items:center; padding:10px; background:var(--panel); backdrop-filter: blur(6px);
-      pointer-events:auto; margin:10px; border-radius:12px;
+    .btn{border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb}
+    .btn.small{padding:6px 8px;font-size:12px}
+    .btn.primary{background:var(--accent);color:#06121a;font-weight:800}
+    .btn.warn{background:#b91c1c}
+    .chip,.label{font-size:12px;opacity:.9}
+    .muted{opacity:.7}
+
+    /* Rainbow colour icon (tap-safe) */
+    .colour-icon{position:relative;width:32px;height:32px;border-radius:50%;display:inline-block;cursor:pointer;flex:0 0 auto;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+    .colour-icon::before,.colour-icon::after{position:absolute;inset:0;border-radius:50%;content:"";pointer-events:none;z-index:1}
+    .colour-icon::before{
+      background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);
+      padding:2px; -webkit-mask: radial-gradient(#0000 60%,#000 61%), linear-gradient(#000,#000) content-box;
+      mask: radial-gradient(#0000 60%,#000 61%), linear-gradient(#000,#000) content-box;
     }
-    .topbar { align-self: flex-start; }
-    .bottombar { align-self: flex-end; }
-    .btn {
-      border:0; border-radius:12px; padding:10px 12px; background:#111827; color:#e5e7eb; font-weight:600;
+    .colour-icon::after{inset:4px;background:#0f172a;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+    .colour-dot{position:absolute;left:50%;top:50%;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%);border:2px solid rgba(255,255,255,.85);box-shadow:0 1px 6px rgba(0,0,0,.35);pointer-events:none;z-index:2}
+    .colour-icon input[type="color"]{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;margin:0;padding:0;-webkit-appearance:none;appearance:none;cursor:pointer;z-index:3}
+
+    .panel{
+      position:fixed;inset:auto 10px 10px 10px;bottom:10px;z-index:25;max-width:1040px;
+      background:var(--panel);backdrop-filter:blur(8px);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.55);
+      padding:12px;display:none
     }
-    .btn.primary { background:var(--accent); color:#08212a; }
-    .btn.big { padding:14px 18px; font-size:16px; }
-    .chip { font-size:12px; opacity:.9 }
-    input[type="color"] { appearance:none; width:36px; height:36px; border-radius:50%; border:0; padding:0; background:transparent; }
-    input[type="range"] { width:150px; }
-    #arHint { position:fixed; left:50%; transform:translateX(-50%); bottom:10px; font-size:12px; opacity:.9; background:var(--panel); padding:8px 10px; border-radius:10px; }
-    #fallback { position:fixed; inset:0; display:none; background:#0b0f18; }
-    #fbCanvas { display:block; width:100%; height:100%; touch-action:none; }
-    #unsupported { position:fixed; inset:auto 10px 10px 10px; background:var(--panel); padding:12px; border-radius:12px; display:none }
-    a { color:#9de1ff; }
+    .panel.open{display:block}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .grp{display:grid;gap:8px;margin-top:10px}
+    .grp>h4{margin:0;font-size:12px;letter-spacing:.04em;opacity:.9;text-transform:uppercase}
+    select,input[type="range"],input[type="checkbox"],button{border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb}
+    input[type="range"]{width:160px}
+    input[type="checkbox"]{width:auto;height:auto;padding:0}
+    .hidden{display:none}
+
+    /* Layers */
+    .layers{display:grid;gap:8px}
+    .layer-item{
+      display:grid;grid-template-columns:auto 1fr auto auto auto;gap:8px;align-items:center;
+      padding:6px 8px;border-radius:10px;background:#0f172a;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)
+    }
+    .layer-item.active{box-shadow:0 0 0 2px var(--accent) inset}
+    .layer-name{background:#0b1220;border:0;border-radius:8px;padding:6px 8px;color:#e5e7eb;min-width:120px}
+    .icbtn{background:#0b1220;border-radius:8px;border:0;padding:6px 8px;color:#e5e7eb}
+    .icbtn[aria-pressed="true"]{background:#122038}
+    .ic{font-size:14px;line-height:1}
+    .sep{height:1px;background:rgba(255,255,255,.06);margin:6px 0}
+
+    /* Zoom HUD */
+    .zoomHud{position:fixed;right:10px;bottom:10px;z-index:30;display:flex;gap:8px;align-items:center;background:var(--panel);backdrop-filter:blur(6px);padding:8px 10px;border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+    .hudText{font-size:12px;opacity:.95}
+
+    /* Status HUD */
+    .hud{position:fixed;left:10px;bottom:10px;background:var(--panel);padding:8px 10px;border-radius:10px;z-index:20;font-size:12px}
+
+    @media (max-width:600px){
+      input[type="range"]{width:130px}
+      .layer-name{min-width:90px}
+      .label{display:none}
+    }
   </style>
 </head>
 <body>
 
-  <!-- AR UI overlay (DOM Overlay for WebXR) -->
-  <div id="overlay" aria-live="polite">
-    <div class="topbar">
-      <button id="startAR" class="btn primary">Start AR</button>
-      <div class="chip" id="gpsChip">GPS: —</div>
-      <div class="chip" id="statusChip">Status: idle</div>
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button id="menuBtn" class="btn">Menu</button>
+    <button id="modeBtn" class="btn" title="Toggle Free-Air / Photo-Wall">Free-Air</button>
+    <button id="motionBtn" class="btn" title="Enable device motion (iOS permission)">Enable Motion</button>
+
+    <select id="inputSel" class="btn" title="Input mode">
+      <option value="pointer" selected>Pointer</option>
+      <option value="motion">Motion</option>
+    </select>
+
+    <!-- Rainbow colour icons -->
+    <span class="label">Paint</span>
+    <div class="colour-icon" id="paintIcon" title="Paint colour" tabindex="0" role="button" aria-label="Choose paint colour">
+      <input id="paintColor" type="color" value="#6ee7ff" aria-label="Choose paint colour">
+      <div class="colour-dot" id="paintDot"></div>
     </div>
 
-    <div class="bottombar">
-      <label class="chip">Colour</label>
-      <input id="paintColor" type="color" value="#6ee7ff" aria-label="Paint colour" />
-      <label class="chip">Size</label>
-      <input id="sizeRange" type="range" min="0.5" max="6" step="0.1" value="2.0" />
-      <button id="spray" class="btn big">● Spray (hold)</button>
-      <button id="snapshot" class="btn">Save Snapshot</button>
-      <button id="saveMeta" class="btn">Save Metadata</button>
+    <span class="label">BG</span>
+    <div class="colour-icon" id="bgIcon" title="Background colour" tabindex="0" role="button" aria-label="Choose background colour">
+      <input id="bgColor" type="color" value="#0b0f18" aria-label="Choose background colour">
+      <div class="colour-dot" id="bgDot"></div>
+    </div>
+
+    <!-- Zoom -->
+    <button id="zoomToggle" class="btn" title="Toggle Zoom mode">Zoom: Off</button>
+  </div>
+
+  <!-- Zoom HUD -->
+  <div id="zoomHud" class="zoomHud hidden">
+    <button id="zoomOut" class="btn small" title="Zoom out">−</button>
+    <button id="zoomIn" class="btn small" title="Zoom in">+</button>
+    <button id="zoomFit" class="btn small" title="Fit view">Fit</button>
+    <button id="zoom1" class="btn small" title="100%">100%</button>
+    <span class="hudText">Drag to pan • Wheel to zoom</span>
+  </div>
+
+  <!-- Settings Panel -->
+  <div id="panel" class="panel" aria-label="Settings Panel">
+    <div class="row">
+      <div class="chip">Spray Can</div>
+      <span style="flex:1"></span>
+      <button id="finaliseBtn" class="btn primary">Finalise Piece</button>
+      <button id="newVersionBtn" class="btn">New Version</button>
+      <button id="saveFlatBtn" class="btn">Save Flattened</button>
+      <button id="saveLayersBtn" class="btn">Save Layers</button>
+      <button id="closePanel" class="btn">Close</button>
+    </div>
+
+    <!-- Layers -->
+    <div class="grp">
+      <h4>Layers <span id="verTag" class="muted">(v01)</span></h4>
+      <div class="row" style="gap:6px;">
+        <button id="addLayerBtn" class="btn small">Add Layer</button>
+        <button id="dupLayerBtn" class="btn small">Duplicate</button>
+        <button id="delLayerBtn" class="btn small warn">Delete</button>
+        <div class="sep" style="flex:1"></div>
+        <button id="moveUpBtn" class="btn small">Move Up</button>
+        <button id="moveDownBtn" class="btn small">Move Down</button>
+        <div class="sep" style="flex:1"></div>
+        <button id="commitVisibleBtn" class="btn small">Commit Visible → Base</button>
+        <button id="clearVisibleBtn" class="btn small">Clear Visible</button>
+      </div>
+      <div id="layersList" class="layers" aria-live="polite"></div>
+      <div class="chip">Paint target: <b id="activeLayerName">—</b></div>
+    </div>
+
+    <!-- Nibs -->
+    <div class="grp">
+      <h4>Nibs</h4>
+      <div class="row">
+        <label>Cap</label>
+        <select id="capSel">
+          <option value="ultra_skinny" selected>Ultra Skinny</option>
+          <option value="skinny">Skinny</option>
+          <option value="medium">Medium</option>
+          <option value="fat">Fat</option>
+          <option value="super_fat">Super Fat</option>
+          <option value="custom">Custom</option>
+        </select>
+        <span id="sizeFlow" class="row hidden">
+          <label>Size</label><input id="sizeRange" type="range" min="4" max="64" value="14"/>
+          <label>Flow</label><input id="flowRange" type="range" min="1" max="100" value="36"/>
+        </span>
+      </div>
+      <div class="row">
+        <label class="row" style="gap:6px;"><input type="checkbox" id="fanEnable"/> Fan</label>
+        <span id="fanRow" class="row hidden">
+          <label>Strength</label><input id="fanStrength" type="range" min="0" max="100" value="0"/>
+          <label>Feather</label><input id="fanFeather" type="range" min="0" max="100" value="35"/>
+        </span>
+        <label class="row" style="gap:16px;margin-left:16px;"><input type="checkbox" id="dripEnable"/> Drip</label>
+        <span id="dripRow" class="row hidden">
+          <label>Strength</label><input id="dripStrength" type="range" min="0" max="100" value="45"/>
+        </span>
+      </div>
+      <div id="designerRow" class="row hidden">
+        <label>Anisotropy</label><input id="anisoRange" type="range" min="0" max="100" value="0"/>
+        <label>Fan Length</label><input id="fanLen" type="range" min="60" max="520" value="180"/>
+        <label>Fan Thickness</label><input id="fanThick" type="range" min="1" max="42" value="6"/>
+        <label>Core Hardness</label><input id="coreHard" type="range" min="0" max="100" value="35"/>
+      </div>
+    </div>
+
+    <!-- Movement Tuning -->
+    <div class="grp">
+      <h4>Movement (Motion input)</h4>
+      <div class="row">
+        <label>Sensitivity</label><input id="mvGain" type="range" min="50" max="300" value="120"/>
+        <label>Smoothing</label><input id="mvSmooth" type="range" min="1" max="95" value="18"/>
+        <label>Deadzone</label><input id="mvDead" type="range" min="0" max="30" value="6"/>
+        <label class="row" style="gap:6px;"><input type="checkbox" id="mvHori" checked/> Horizon lock</label>
+        <label class="row" style="gap:6px;"><input type="checkbox" id="mvInvX"/> Invert X</label>
+        <label class="row" style="gap:6px;"><input type="checkbox" id="mvInvY"/> Invert Y</label>
+        <button id="mvCal" class="btn small">Calibrate</button>
+      </div>
+      <div class="chip">Tip: Enable Motion in the toolbar, then switch Input → Motion.</div>
+    </div>
+
+    <!-- Free-Air / Photo -->
+    <div id="freeRow" class="grp">
+      <h4>Free-Air</h4>
+      <div class="row">
+        <label>Background</label><input id="bgPick" type="color" value="#0b0f18"/>
+        <label>Fade</label><input id="fadeRange" type="range" min="0" max="40" value="12"/>
+      </div>
+    </div>
+
+    <div id="photoRow" class="grp hidden">
+      <h4>Photo-Wall</h4>
+      <div class="row">
+        <label for="fileInput" class="btn primary" style="cursor:pointer;">Upload / Camera</label>
+        <input id="fileInput" type="file" accept="image/*" capture="environment" class="hidden">
+        <label>Zoom</label><input id="zoomRange" type="range" min="10" max="300" value="100"/>
+        <button id="fitBtn" class="btn">Fit</button>
+        <button id="oneBtn" class="btn">100%</button>
+      </div>
     </div>
   </div>
 
-  <!-- Hint -->
-  <div id="arHint">Move phone to scan; align the reticle with your wall, then hold “Spray”.</div>
-
-  <!-- Fallback 2D Photo Painter -->
-  <div id="fallback">
-    <div class="topbar" style="position:absolute;left:10px;top:10px;z-index:10;">
-      <label for="fileInput" class="btn primary" style="cursor:pointer;">Upload / Camera</label>
-      <input id="fileInput" class="btn" type="file" accept="image/*" capture="environment" style="display:none;">
-      <input id="fbColor" type="color" value="#6ee7ff"/>
-      <label class="chip">Size</label><input id="fbSize" type="range" min="2" max="42" value="16" />
-      <button id="fbSave" class="btn">Save PNG</button>
-      <div class="chip">Fallback mode (no AR)</div>
-    </div>
-    <canvas id="fbCanvas"></canvas>
+  <!-- Status HUD -->
+  <div class="hud" id="hud">
+    <span id="status">drag or Pencil to draw</span> • Input: <span id="inputHud">Pointer</span> • β <span id="b">—</span> γ <span id="g">—</span> • energy <span id="en">—</span>
   </div>
 
-  <div id="unsupported"></div>
+  <!-- Help -->
+  <div id="help" class="panel" style="max-width:720px;top:10px;bottom:auto;">
+    <div class="grp">
+      <h4>Help</h4>
+      <div class="row" style="line-height:1.5">
+        <div>
+          <p><b>Finalise Piece:</b> exports a PNG and locks editing. Use <b>New Version</b> to keep painting with a fresh stack.</p>
+          <p><b>Layers:</b> select a layer to paint; eye toggles visibility; Move Up/Down changes order; Commit Visible → Base locks progress without deleting layers.</p>
+          <p><b>Motion:</b> tweak Sensitivity, Smoothing, Deadzone, and use <b>Calibrate</b> while holding the device in a comfortable neutral pose.</p>
+        </div>
+      </div>
+      <div class="row"><button id="helpClose" class="btn primary">Close</button></div>
+    </div>
+  </div>
 
-  <!-- THREE.js (ESM) -->
-  <script type="module">
-    /**
-     * AR Graffiti MVP — main module
-     * - Sets up THREE WebGLRenderer with WebXR AR session + hit-test.
-     * - Reticle indicates where paint will stick.
-     * - Hold-to-spray adds sprites (decals) to the world at reticle pose.
-     * - GPS captured on load (if available).
-     * - Fallback 2D painter if WebXR AR isn't available.
+  <script>
+    /* =========================
+       Global state
+       ========================= */
+    let mode='free', bgImg=null;
+
+    // Base + Working Layers
+    let baseLayer;
+    let layers=[];           // [{ name, gfx, visible, id }]
+    let activeIndex=0;
+
+    // Version/finalisation
+    let versionNum=1;
+    let isLocked=false;      // true = finalised (UI + painting locked)
+
+    // Input & motion
+    let inputMode='pointer';
+    let haveMotion=false, haveOrientAngle=false, orientAngle=0;
+    let beta=null, gamma=null, energy=0;
+
+    // Motion tuning
+    let mvGain=1.2;          // sensitivity (multiplier)
+    let mvSmooth=0.18;       // smoothing factor (0..1), UI uses 1..95 → map to 0.01..0.95
+    let mvDead=0.06;         // radians deadzone (~3.4°)
+    let mvHori=true, mvInvX=false, mvInvY=false;
+    let calib={b:0,g:0};     // calibration offsets
+    const FAN_ORIENTATION_OFFSET = Math.PI/2;
+
+    let px=null, py=null;    // motion pointer
+    let dirSmooth=0, dirInit=false;
+
+    // Colours & background
+    let brushColor='#6ee7ff';
+    let freeBgColour='#0b0f18';
+    let fadeAlpha=12;
+
+    // Brush/pressure
+    let brushSize=14, flow=36, currentBrushSize=brushSize, currentFlow=flow, lastPressure=0.6;
+
+    // Fan/drip & geometry
+    let anisotropy=0, fanLength=180, fanThickness=6, coreHardness=35;
+    let dripEnabled=false, dripStrength=45;
+    let fanEnabled=false, fanStrength=0, fanFeather=35;
+
+    // Preset lock
+    let controlsLocked=true;
+
+    // Photo transforms
+    let baseFitScale=1, zoomFactorPhoto=1, photoOffset={x:0,y:0};
+
+    // Global view transform (Zoom mode)
+    let viewScale=1, viewOffset={x:0,y:0}, zoomMode=false;
+    const VIEW_MIN=0.25, VIEW_MAX=4.0;
+    let zoomPanning=false, lastPan={x:0,y:0};
+
+    // DOM/pointer
+    let canvasElt=null, pointerActive=false;
+
+    const REF_CAP=16; let baseCapSize=brushSize;
+
+    /* =========================
+       p5 setup/draw/resize
+       ========================= */
+    function setup(){
+      const cnv=createCanvas(windowWidth, windowHeight); canvasElt=cnv.elt;
+
+      baseLayer = createGraphics(windowWidth, windowHeight); baseLayer.clear();
+      layers = []; addLayer('Layer 1');
+
+      background(freeBgColour);
+      attachUI();
+      attachPointer();
+      attachZoomInput();
+      applyCap('ultra_skinny');
+      setControlsLocked(true);
+      updateHud();
+      renderLayerList();
+      updateVersionTag();
+    }
+
+    function draw(){
+      if(mode==='free'){
+        // Background wash
+        push(); noStroke(); const c=color(freeBgColour); c.setAlpha(fadeAlpha); fill(c); rect(0,0,width,height); pop();
+      }
+
+      // Compose scene
+      push(); translate(viewOffset.x, viewOffset.y); scale(viewScale);
+      if(mode==='photo'){ if(bgImg){ drawPhotoTransformed(); } else { drawChecker(); } }
+      image(baseLayer, 0, 0);
+      for(const L of layers){ if(L.visible) image(L.gfx,0,0); }
+      pop();
+
+      // Motion painting
+      if(!isLocked && !zoomMode && inputMode==='motion' && haveMotion && (beta!=null || gamma!=null)){
+        const pt = motionToPoint();
+        if(pt){
+          if(px==null||py==null){ px=pt.x; py=pt.y; }
+          px += (pt.x - px) * mvSmooth;
+          py += (pt.y - py) * mvSmooth;
+          sprayAt(px,py,null);
+        }
+      }
+    }
+
+    function windowResized(){
+      resizeCanvas(windowWidth, windowHeight);
+      const newBase=createGraphics(windowWidth, windowHeight); newBase.clear();
+      newBase.image(baseLayer,0,0,windowWidth,windowHeight); baseLayer=newBase;
+      for(const L of layers){
+        const g=createGraphics(windowWidth, windowHeight); g.clear();
+        g.image(L.gfx,0,0,windowWidth,windowHeight);
+        L.gfx.remove(); L.gfx=g;
+      }
+      if(bgImg){ computeBaseFit(); }
+      renderLayerList();
+    }
+
+    /* =========================
+       Finalise workflow
+       ========================= */
+
+    /** finalisePiece()
+     *  Merge Base + all VISIBLE working layers, export as Final-vNN.png,
+     *  lock painting and layer operations until beginNewVersion().
      */
-    import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
-    import { ARButton } from 'https://unpkg.com/three@0.158.0/examples/jsm/webxr/ARButton.js';
-
-    // ---------- DOM ----------
-    const overlay   = document.getElementById('overlay');
-    const startBtn  = document.getElementById('startAR');
-    const sprayBtn  = document.getElementById('spray');
-    const paintInp  = document.getElementById('paintColor');
-    const sizeRange = document.getElementById('sizeRange');
-    const statusChip= document.getElementById('statusChip');
-    const gpsChip   = document.getElementById('gpsChip');
-    const hint      = document.getElementById('arHint');
-    const snapshot  = document.getElementById('snapshot');
-    const saveMeta  = document.getElementById('saveMeta');
-    const unsupportedBox = document.getElementById('unsupported');
-
-    const fallbackDiv = document.getElementById('fallback');
-    const fbCanvas = document.getElementById('fbCanvas');
-    const fbSize   = document.getElementById('fbSize');
-    const fbColor  = document.getElementById('fbColor');
-    const fbSave   = document.getElementById('fbSave');
-    const fileInput= document.getElementById('fileInput');
-
-    // ---------- State ----------
-    let renderer, scene, camera;
-    let xrRefSpace = null;
-    let hitTestSource = null;
-    let hitTestInitialized = false;
-
-    let reticle;
-    let spraying = false;
-
-    // paint settings
-    let paintColor = new THREE.Color(paintInp.value);
-    let paintSize  = parseFloat(sizeRange.value); // world units (approx. meters)
-
-    // session metadata (simple)
-    const meta = {
-      startedAt: new Date().toISOString(),
-      gps: null,
-      stamps: 0
-    };
-
-    // ---------- GPS ----------
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          meta.gps = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            acc: pos.coords.accuracy
-          };
-          gpsChip.textContent = `GPS: ${meta.gps.lat.toFixed(5)}, ${meta.gps.lng.toFixed(5)} (±${Math.round(meta.gps.acc)}m)`;
-        },
-        err => { gpsChip.textContent = 'GPS: unavailable'; },
-        { enableHighAccuracy:true, timeout:8000, maximumAge:5000 }
-      );
-    } else {
-      gpsChip.textContent = 'GPS: not supported';
-    }
-
-    // ---------- Feature detect & boot ----------
-    const xrOK = navigator.xr && await navigator.xr.isSessionSupported?.('immersive-ar');
-    if (!xrOK) {
-      // show fallback painter
-      startFallbackPainter();
-      showUnsupported('AR not supported on this device/browser. You can still paint on photos in fallback mode.');
-    }
-
-    // Wire UI regardless; Start AR will no-op in fallback.
-    startBtn.addEventListener('click', () => { if(xrOK) initAR(); });
-    paintInp.addEventListener('input', () => { paintColor.set(paintInp.value); });
-    sizeRange.addEventListener('input', () => { paintSize = parseFloat(sizeRange.value); });
-
-    sprayBtn.addEventListener('pointerdown', e => { spraying = true; sprayBtn.classList.add('primary'); });
-    sprayBtn.addEventListener('pointerup',   e => { spraying = false; sprayBtn.classList.remove('primary'); });
-    sprayBtn.addEventListener('pointerleave',e => { spraying = false; sprayBtn.classList.remove('primary'); });
-
-    snapshot.addEventListener('click', saveSnapshot);
-    saveMeta.addEventListener('click', () => downloadText(JSON.stringify(meta,null,2), `AR-Metadata-${new Date().toISOString().slice(0,19)}.json`));
-
-    // ---------- AR Init ----------
-    async function initAR(){
-      statusChip.textContent = 'Status: starting AR…';
-      // Scene + camera
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera();
-
-      // Renderer
-      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.xr.enabled = true;
-
-      // Put Three's canvas behind our overlay
-      document.body.appendChild(renderer.domElement);
-      renderer.domElement.style.position = 'fixed';
-      renderer.domElement.style.inset = '0';
-
-      // Lighting (subtle, mostly for sprites if needed)
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
-      scene.add(light);
-
-      // Reticle mesh (ring)
-      reticle = buildReticle();
-      scene.add(reticle);
-
-      // AR Button (uses DOM overlay root)
-      const arBtn = ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test', 'dom-overlay'],
-        domOverlay: { root: document.body }
-      });
-      // Replace default ARButton with our "Start AR"
-      arBtn.style.display = 'none';
-
-      // Session start
-      renderer.xr.addEventListener('sessionstart', onSessionStart);
-      renderer.xr.addEventListener('sessionend', onSessionEnd);
-
-      // Render loop
-      renderer.setAnimationLoop(renderXR);
-
-      window.addEventListener('resize', onWindowResize, { passive:true });
-    }
-
-    function onWindowResize(){
-      if(!renderer || !camera) return;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    async function onSessionStart(){
-      statusChip.textContent = 'Status: scanning…';
-      hint.style.display='block';
-
-      const session = renderer.xr.getSession();
-      xrRefSpace = await session.requestReferenceSpace('local');
-
-      // Hit test source
-      const viewerSpace = await session.requestReferenceSpace('viewer');
-      const sources = await session.requestHitTestSource({ space: viewerSpace });
-      hitTestSource = sources;
-      hitTestInitialized = true;
-    }
-
-    function onSessionEnd(){
-      statusChip.textContent = 'Status: ended';
-      hitTestSource = null;
-      hitTestInitialized = false;
-      xrRefSpace = null;
-      // keep the snapshot UI available
-    }
-
-    // ---------- Render loop ----------
-    function renderXR(t, frame){
-      if(!frame || !xrRefSpace) { renderer.render(scene, camera); return; }
-
-      const session = renderer.xr.getSession();
-      const pose = frame.getViewerPose(xrRefSpace);
-
-      if (hitTestInitialized) {
-        const hitRes = frame.getHitTestResults(hitTestSource);
-        if (hitRes.length > 0) {
-          const hit = hitRes[0];
-          const hitPose = hit.getPose(xrRefSpace);
-          reticle.visible = true;
-          reticle.matrix.fromArray(hitPose.transform.matrix);
-          reticle.matrix.decompose(reticle.position, reticle.quaternion, reticle.scale);
-          statusChip.textContent = 'Status: target locked';
-          hint.style.display = 'none';
-
-          if (spraying) {
-            // Stamp a bunch of dots each frame for a spray feel
-            for(let i=0;i<8;i++){
-              addSprayDotAtReticle();
-              meta.stamps++;
-            }
-          }
-        } else {
-          reticle.visible = false;
-          statusChip.textContent = 'Status: scanning…';
-          hint.style.display='block';
-        }
+    function finalisePiece(){
+      const out=createGraphics(width, height);
+      if(mode==='photo' && bgImg){
+        out.background(0,0);
+        out.push(); out.translate(width/2+photoOffset.x, height/2+photoOffset.y);
+        out.scale(baseFitScale*zoomFactorPhoto); out.imageMode(CENTER); out.image(bgImg,0,0); out.pop();
+      }else{
+        out.background(freeBgColour);
       }
+      out.image(baseLayer,0,0);
+      for(const L of layers){ if(L.visible) out.image(L.gfx,0,0); }
 
-      renderer.render(scene, camera);
+      // Save with version tag
+      const fname = `Final-v${String(versionNum).padStart(2,'0')}.png`;
+      triggerDownload(out, fname);
+      out.remove();
+
+      // Lock UI
+      isLocked=true;
+      setPaintingEnabled(false);
+      updateStatus(`Finalised ${fname}. UI locked.`);
     }
 
-    // ---------- Build helpers ----------
-    function buildReticle(){
-      const geo = new THREE.RingGeometry(0.06, 0.075, 32);
-      const mat = new THREE.MeshBasicMaterial({ color: 0x80ffdd, opacity:0.9, transparent:true, side:THREE.DoubleSide });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.rotation.x = -Math.PI/2;
-      mesh.visible = false;
-      return mesh;
+    /** beginNewVersion()
+     *  Unlock UI, clear working stack, create new empty layer, bump version tag.
+     */
+    function beginNewVersion(){
+      isLocked=false;
+      // Optionally keep previous base; user can keep building
+      layers.forEach(L=> L.gfx.remove());
+      layers = [];
+      addLayer('Layer 1');
+      activeIndex=0;
+      px=py=null;
+      versionNum++;
+      updateVersionTag();
+      setPaintingEnabled(true);
+      renderLayerList();
+      updateStatus('New version started.');
     }
 
-    // Create (once) a small soft circular texture we tint per-sprite via material color
-    const paintTexture = (() => {
-      const c = document.createElement('canvas');
-      c.width = c.height = 128;
-      const ctx = c.getContext('2d');
-      const grd = ctx.createRadialGradient(64,64,8, 64,64,64);
-      grd.addColorStop(0, 'rgba(255,255,255,0.9)');
-      grd.addColorStop(0.4, 'rgba(255,255,255,0.5)');
-      grd.addColorStop(1, 'rgba(255,255,255,0.0)');
-      ctx.fillStyle = grd;
-      ctx.fillRect(0,0,128,128);
-      const tex = new THREE.CanvasTexture(c);
-      tex.minFilter = THREE.LinearFilter;
-      return tex;
-    })();
-
-    function addSprayDotAtReticle(){
-      if(!reticle || !reticle.visible) return;
-      // Random small offset in reticle local space to emulate spray spread
-      const spread = paintSize * 0.35;
-      const rx = (Math.random()*2-1) * spread;
-      const ry = (Math.random()*2-1) * spread;
-
-      const spriteMat = new THREE.SpriteMaterial({
-        map: paintTexture,
-        color: paintColor,
-        transparent: true,
-        depthWrite: false
-      });
-      const sprite = new THREE.Sprite(spriteMat);
-
-      // Place at reticle + offset in reticle's tangent plane
-      const up = new THREE.Vector3(0,1,0);
-      const normal = new THREE.Vector3(0,1,0);
-      // Extract plane normal from reticle quaternion (assumes XZ plane reticle)
-      normal.set(0,1,0).applyQuaternion(reticle.quaternion);
-
-      const right = new THREE.Vector3(1,0,0).applyQuaternion(reticle.quaternion);
-      const forward = new THREE.Vector3(0,0,1).applyQuaternion(reticle.quaternion);
-
-      sprite.position.copy(reticle.position)
-        .addScaledVector(right, rx)
-        .addScaledVector(forward, ry);
-
-      const s = paintSize * (0.7 + Math.random()*0.6);
-      sprite.scale.setScalar(s);
-
-      scene.add(sprite);
+    function updateVersionTag(){
+      const t=document.getElementById('verTag');
+      if(t) t.textContent=`(v${String(versionNum).padStart(2,'0')})`;
     }
 
-    // ---------- Snapshot & Metadata ----------
-    function saveSnapshot(){
+    function setPaintingEnabled(on){
+      // Disable/enable layer controls and painting-related UI
+      const ids=['addLayerBtn','dupLayerBtn','delLayerBtn','moveUpBtn','moveDownBtn','commitVisibleBtn','clearVisibleBtn',
+                 'capSel','sizeRange','flowRange','fanEnable','fanStrength','fanFeather','dripEnable','dripStrength',
+                 'anisoRange','fanLen','fanThick','coreHard'];
+      ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=!on; });
+
+      // Also block actual painting path
+      paintingBlocked = !on;
+    }
+    let paintingBlocked=false;
+
+    /* =========================
+       Motion tuning
+       ========================= */
+
+    /** applyMotionTuning(rawB, rawG)
+     *  Applies calibration, inversion, deadzone and returns a smoothed bearing angle.
+     *  Returns {x,y} canvas coords mapped by mvGain, or null if under deadzone.
+     */
+    function motionToPoint(){
+      if(beta==null && gamma==null) return null;
+
+      // Calibrated deltas (degrees)
+      let db = (beta ?? 0)  - calib.b;
+      let dg = (gamma ?? 0) - calib.g;
+      if(mvInvY) db = -db;
+      if(mvInvX) dg = -dg;
+
+      // Deadzone: ignore tiny movements
+      const radB = radians(db), radG = radians(dg);
+      const mag = Math.hypot(radG, radB);
+      if(mag < mvDead) return null;
+
+      // Horizon lock keeps fan horizontal; for pointer position we still map both axes
+      const gx = map(constrain(dg*mvGain, -60,60), -60,60, 0, width);
+      const gy = map(constrain(db*mvGain,   0,90),   0,90,  0, height);
+      return {x: gx, y: gy};
+    }
+
+    function calibrateMotion(){
+      calib.b = beta ?? 0;
+      calib.g = gamma ?? 0;
+      updateStatus('Motion calibrated');
+    }
+
+    /* =========================
+       Painting engine
+       ========================= */
+    function setDynamicsForPressure(p){
+      const pr=(p==null||isNaN(p))?0.6:Math.max(0,Math.min(1,p));
+      lastPressure=pr;
+      currentBrushSize=brushSize*(0.6+0.8*pr);
+      currentFlow=flow*(0.4+0.8*pr);
+    }
+    function easeInQuart(s){ return s*s*s*s; }
+    function getFanParams(){
+      let s = Math.max(0, Math.min(1, fanStrength/100));
+      if(s<0.03) s=0; // even softer start
+      const e = easeInQuart(s);
+      const capScale = Math.max(0.6, Math.min(2.0, baseCapSize / REF_CAP));
+      const se = Math.max(0, Math.min(1.0, e * capScale));
+      const baseLen   = Math.max(brushSize * 1.2,  fanLength * 0.55);
+      const targetLen = fanLength * (0.9 + 0.4 * capScale);
+      const baseThk   = Math.max(brushSize * 0.35, fanThickness * 0.5);
+      const targetThk = fanThickness * (0.8 + 0.6 * capScale);
+      const stretch   = 1.0 + 3.0 * se;
+      const len   = lerp(baseLen, targetLen, se);
+      const thick = Math.max(1, lerp(baseThk, targetThk, se));
+      return { len, thick, stretch };
+    }
+
+    function targetLayer(){
+      if(isLocked) return null;
+      if(layers.length===0) return null;
+      activeIndex = Math.max(0, Math.min(activeIndex, layers.length-1));
+      const L = layers[activeIndex];
+      if(!L.visible) return null;
+      return L.gfx;
+    }
+
+    function sprayAt(x,y,pressure=null){
+      if(paintingBlocked) return;
+      const g = targetLayer();
+      if(!g) return;
+
+      setDynamicsForPressure(pressure);
+      const p=createVector(x,y);
+
+      if(window._lastP){
+        const steps=Math.max(1,int(p5.Vector.dist(p,window._lastP)/4));
+        for(let i=1;i<=steps;i++){
+          const t=i/steps, q=p5.Vector.lerp(window._lastP,p,t);
+          const dir=Math.atan2(q.y-window._lastP.y,q.x-window._lastP.x);
+          smoothDir(dir);
+          const wantFan=fanEnabled && fanStrength>0;
+          const ang=chooseSprayAngle(wantFan);
+          if(wantFan) doSprayCloudAnisoTight(g,q.x,q.y,ang); else doSprayCloudRound(g,q.x,q.y);
+          if(wantFan) stampFan(g,q.x,q.y,ang); else stampRoundCore(g,q.x,q.y);
+          if(dripEnabled && Math.random()<dripChance()) drawDrip(g,q.x,q.y,dripLen(),dripThick());
+        }
+      }else{
+        const wantFan=fanEnabled && fanStrength>0;
+        const ang=chooseSprayAngle(wantFan);
+        if(wantFan) doSprayCloudAnisoTight(g,p.x,p.y,ang); else doSprayCloudRound(g,p.x,p.y);
+        if(wantFan) stampFan(g,p.x,p.y,ang); else stampRoundCore(g,p.x,p.y);
+        if(dripEnabled && Math.random()<dripChance()) drawDrip(g,p.x,p.y,dripLen(),dripThick());
+      }
+      window._lastP=p;
+    }
+
+    function chooseSprayAngle(wantFan){
+      if(!wantFan) return dirSmooth + FAN_ORIENTATION_OFFSET;
+      if(mvHori && haveOrientAngle) return 0 + FAN_ORIENTATION_OFFSET; // lock horizontal fan
+      if(haveOrientAngle) return orientAngle + FAN_ORIENTATION_OFFSET;
+      return dirSmooth + FAN_ORIENTATION_OFFSET;
+    }
+    function smoothDir(newDir){
+      if(!dirInit){ dirSmooth=newDir; dirInit=true; return; }
+      let d=normalizeAngle(newDir-dirSmooth); dirSmooth=dirSmooth + d*0.25;
+    }
+    function normalizeAngle(a){ while(a> Math.PI) a-=TWO_PI; while(a<-Math.PI) a+=TWO_PI; return a; }
+
+    function doSprayCloudRound(g,x,y){
+      const density=Math.round(map(currentFlow,1,100,6,36))+Math.floor(energy*8);
+      for(let i=0;i<density;i++){
+        const r=random(currentBrushSize*0.25,currentBrushSize*(1.1+energy*0.8));
+        const a=random(TWO_PI);
+        sprayDot(g,x+r*Math.cos(a), y+r*Math.sin(a), 0.40+Math.random()*0.40);
+      }
+    }
+    function doSprayCloudAnisoTight(g,x,y,dir){
+      const {len,thick,stretch}=getFanParams();
+      const major=Math.max(currentBrushSize*0.9,len*0.40)*stretch;
+      const minor=Math.max(currentBrushSize*0.30,thick*0.85);
+      const ux=Math.cos(dir), uy=Math.sin(dir), vx=-uy, vy=ux;
+      const baseDensity=map(currentFlow,1,100,10,42);
+      const density=Math.round(baseDensity + energy*8);
+      const softness = Math.max(0, Math.min(1, fanFeather/100));
+      const k = 6 - 4.8*softness;
+      for(let i=0;i<density;i++){
+        let a,b,tries=0;
+        do{ a=randomGaussian(0,0.33); b=randomGaussian(0,0.28); tries++; }while((a*a+b*b>1.0)&&tries<6);
+        const sx=x+(a*major)*ux+(b*minor)*vx;
+        const sy=y+(a*major)*uy+(b*minor)*vy;
+        const edge = Math.min(1, Math.abs(b));
+        const fall = Math.pow(1 - edge, k);
+        const alpha=(0.18 + 0.42*fall) * (0.8 + 0.4*lastPressure);
+        sprayDot(g,sx,sy,alpha);
+      }
+    }
+    function stampRoundCore(g,x,y){
+      g.noStroke(); const hard=coreHardness/100;
+      const baseA=lerp(0.18,0.70,hard); const c=color(brushColor); c.setAlpha(255*baseA);
+      g.fill(c); g.circle(x,y,currentBrushSize*lerp(0.95,0.60,hard));
+    }
+    function stampFan(g,x,y,dir){
+      const {len,thick}=getFanParams();
+      g.push(); g.translate(x,y); g.rotate(dir); g.noStroke();
+      const hard=coreHardness/100;
+      const halo=color(brushColor); halo.setAlpha(28);
+      g.fill(halo); g.rectMode(CENTER);
+      g.rect(0,0,len*1.04,Math.max(1,thick*1.4),Math.max(1,thick*0.7));
+      for(let i=0;i<2;i++){
+        const L=len*(1+(i?0.05:0)), T=thick*(1+(i?0.45:0));
+        const alpha=lerp(0.08,0.22,1-hard)*(i?1:0.6);
+        const c=color(brushColor); c.setAlpha(255*alpha);
+        g.fill(c); g.rectMode(CENTER);
+        g.rect(0,0,L,T,T*0.6);
+      }
+      const core=color(brushColor); core.setAlpha(255*lerp(0.45,0.80,hard));
+      g.fill(core); g.rectMode(CENTER);
+      g.rect(0,0,len,Math.max(1,thick*0.6),Math.max(1,thick*0.4));
+      g.pop();
+    }
+    function sprayDot(g,x,y,a=0.8){
+      g.noStroke(); const c=color(brushColor); c.setAlpha(255*a);
+      g.fill(c); const d=random(currentBrushSize*0.08,currentBrushSize*0.30);
+      g.circle(x,y,d);
+    }
+
+    function dripChance(){ return constrain(0.01 + dripStrength*0.003 + energy*0.08, 0, 0.30); }
+    function dripLen(){ const mul=0.8+0.022*dripStrength, em=1.0+energy*1.3; return random(currentBrushSize*1.2,currentBrushSize*3.8)*mul*em; }
+    function dripThick(){ return Math.max(2,currentBrushSize*(0.08+0.006*dripStrength)); }
+    function drawDrip(g,x,y,len,thick){
+      g.push(); g.stroke(brushColor); g.strokeWeight(thick);
+      g.line(x,y,x,y+len); g.noStroke(); g.fill(brushColor);
+      g.circle(x,y+len,Math.max(2,thick*0.7)); g.pop();
+    }
+
+    /* =========================
+       Photo / Zoom
+       ========================= */
+    function computeBaseFit(){ if(!bgImg) return; baseFitScale=Math.min(width/bgImg.width, height/bgImg.height)||1; }
+    function drawPhotoTransformed(){ drawChecker(); push(); translate(width/2+photoOffset.x,height/2+photoOffset.y); scale(baseFitScale*zoomFactorPhoto); imageMode(CENTER); image(bgImg,0,0); pop(); }
+    function loadPhotoFromFile(file){
+      const reader=new FileReader();
+      reader.onload=e=>{ loadImage(e.target.result,(img)=>{ bgImg=img; computeBaseFit(); zoomFactorPhoto=1; photoOffset={x:0,y:0}; clearVisibleLayers(); }); };
+      reader.readAsDataURL(file);
+    }
+
+    function setZoomMode(on){
+      zoomMode = !!on;
+      document.getElementById('zoomToggle').textContent = 'Zoom: ' + (zoomMode?'On':'Off');
+      document.getElementById('zoomHud').classList.toggle('hidden', !zoomMode);
+      if(zoomMode){ window._lastP=null; pointerActive=false; }
+    }
+    function zoomBy(factor, cx=null, cy=null){
+      const old=viewScale, nv=constrain(old*factor, VIEW_MIN, VIEW_MAX); if(nv===old) return;
+      const x=(cx==null)?width/2:cx, y=(cy==null)?height/2:cy;
+      const wx=(x-viewOffset.x)/old, wy=(y-viewOffset.y)/old;
+      viewScale=nv; viewOffset.x=x-wx*viewScale; viewOffset.y=y-wy*viewScale;
+    }
+    function panBy(dx,dy){ viewOffset.x += dx; viewOffset.y += dy; }
+
+    function attachZoomInput(){
+      window.addEventListener('wheel',(e)=>{ if(!zoomMode) return; const d=e.deltaY>0?1/1.15:1.15; zoomBy(d,e.clientX,e.clientY); e.preventDefault(); },{passive:false});
+      document.addEventListener('pointerdown',(e)=>{ if(!zoomMode) return; zoomPanning=true; lastPan.x=e.clientX; lastPan.y=e.clientY; e.preventDefault(); },{passive:false});
+      document.addEventListener('pointermove',(e)=>{ if(!zoomMode||!zoomPanning) return; panBy(e.clientX-lastPan.x,e.clientY-lastPan.y); lastPan.x=e.clientX; lastPan.y=e.clientY; e.preventDefault(); },{passive:false});
+      const end=()=>{ zoomPanning=false; }; document.addEventListener('pointerup',end,{passive:true}); document.addEventListener('pointercancel',end,{passive:true});
+
+      document.getElementById('zoomIn').onclick = ()=> zoomBy(1.15);
+      document.getElementById('zoomOut').onclick= ()=> zoomBy(1/1.15);
+      document.getElementById('zoom1').onclick  = ()=>{ viewScale=1; viewOffset={x:0,y:0}; };
+      document.getElementById('zoomFit').onclick= ()=>{ viewScale=1; viewOffset={x:0,y:0}; };
+    }
+
+    /* =========================
+       Motion (permission + events)
+       ========================= */
+    function getScreenAngle(){
+      if (typeof window.orientation === 'number') return window.orientation;
+      const a=(screen.orientation && typeof screen.orientation.angle==='number')?screen.orientation.angle:0;
+      return ((a+540)%360)-180;
+    }
+    function tiltToRadians(b,g){
+      const ang=getScreenAngle(); let deg;
+      if(ang===0) deg=g; else if(ang===90) deg=b; else if(ang===-90||ang===270) deg=-b; else deg=-g;
+      return radians(deg||0);
+    }
+    async function enableMotion(){
       try{
-        const data = renderer.domElement.toDataURL('image/png');
-        downloadDataURL(data, `AR-Snapshot-${new Date().toISOString().slice(0,19)}.png`);
-      }catch(e){
-        alert('Snapshot failed (browser blocked readback). Try a regular screenshot.');
-      }
-    }
-    function downloadDataURL(dataURL, filename){
-      const a = document.createElement('a');
-      a.href = dataURL; a.download = filename;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    }
-    function downloadText(text, filename){
-      const blob = new Blob([text], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    // ---------- Fallback painter (2D photo) ----------
-    function startFallbackPainter(){
-      // Show fallback UI
-      fallbackDiv.style.display = 'block';
-
-      const ctx = fbCanvas.getContext('2d');
-      let img = null, painting=false, last=null;
-
-      function resize(){
-        fbCanvas.width = window.innerWidth;
-        fbCanvas.height= window.innerHeight;
-        redraw();
-      }
-      function redraw(){
-        ctx.fillStyle = '#0b0f18';
-        ctx.fillRect(0,0,fbCanvas.width, fbCanvas.height);
-        if(img){
-          // Fit image
-          const s = Math.min(fbCanvas.width/img.width, fbCanvas.height/img.height);
-          const w = img.width*s, h=img.height*s;
-          ctx.drawImage(img, (fbCanvas.width-w)/2, (fbCanvas.height-h)/2, w, h);
+        if (typeof DeviceOrientationEvent!=='undefined' &&
+            typeof DeviceOrientationEvent.requestPermission==='function'){
+          const res = await DeviceOrientationEvent.requestPermission();
+          if(res!=='granted'){ updateStatus('motion denied'); return; }
         }
-      }
-      window.addEventListener('resize', resize, {passive:true});
-      resize();
-
-      function stamp(x,y){
-        const r = parseInt(fbSize.value,10);
-        const g = ctx.createRadialGradient(x,y, r*0.1, x,y, r);
-        const col = fbColor.value;
-        g.addColorStop(0, hexToRgba(col, 0.9));
-        g.addColorStop(0.5, hexToRgba(col, 0.5));
-        g.addColorStop(1, hexToRgba(col, 0.0));
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-      }
-      function onDown(e){ painting=true; last=getXY(e); stamp(last.x,last.y); e.preventDefault(); }
-      function onMove(e){ if(!painting) return; const p=getXY(e);
-        const dx=p.x-last.x, dy=p.y-last.y; const d=Math.hypot(dx,dy);
-        const step = Math.max(1, parseInt(fbSize.value,10)*0.4);
-        const n = Math.ceil(d/step);
-        for(let i=1;i<=n;i++){ const t=i/n; stamp(last.x+dx*t, last.y+dy*t); }
-        last=p; e.preventDefault();
-      }
-      function onEnd(){ painting=false; last=null; }
-
-      function getXY(e){
-        const r=fbCanvas.getBoundingClientRect();
-        const x = (e.touches? e.touches[0].clientX : e.clientX) - r.left;
-        const y = (e.touches? e.touches[0].clientY : e.clientY) - r.top;
-        return {x,y};
-      }
-      function hexToRgba(hex,a){
-        const m=hex.match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
-        if(!m) return `rgba(255,255,255,${a})`;
-        const r=parseInt(m[1],16), g=parseInt(m[2],16), b=parseInt(m[3],16);
-        return `rgba(${r},${g},${b},${a})`;
+        if (typeof DeviceMotionEvent!=='undefined' &&
+            typeof DeviceMotionEvent.requestPermission==='function'){
+          try{ await DeviceMotionEvent.requestPermission(); }catch(_){}
         }
-
-      fbCanvas.addEventListener('pointerdown', onDown, {passive:false});
-      fbCanvas.addEventListener('pointermove', onMove, {passive:false});
-      fbCanvas.addEventListener('pointerup',   onEnd,  {passive:true});
-      fbCanvas.addEventListener('pointercancel',onEnd, {passive:true});
-      fbCanvas.addEventListener('pointerleave', onEnd, {passive:true});
-
-      fileInput.addEventListener('change', (ev)=>{
-        if(!ev.target.files || !ev.target.files[0]) return;
-        const reader = new FileReader();
-        reader.onload = e=>{
-          const _img = new Image();
-          _img.onload = ()=>{ img=_img; redraw(); };
-          _img.src = e.target.result;
-        };
-        reader.readAsDataURL(ev.target.files[0]);
-      });
-
-      fbSave.addEventListener('click', ()=>{
-        const a=document.createElement('a');
-        a.download = `PhotoPaint-${new Date().toISOString().slice(0,19)}.png`;
-        a.href = fbCanvas.toDataURL('image/png');
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      });
+        window.addEventListener('deviceorientation',(ev)=>{
+          if (ev.gamma!=null) gamma=ev.gamma;
+          if (ev.beta!=null)  beta =ev.beta;
+          if (ev.beta!=null || ev.gamma!=null){
+            const target=tiltToRadians((beta??0)-calib.b, (gamma??0)-calib.g);
+            const delta=normalizeAngle(target - orientAngle);
+            orientAngle=orientAngle + delta*0.18;
+            haveOrientAngle=true; haveMotion=true; updateHud();
+          }
+        },{passive:true});
+        window.addEventListener('devicemotion',(e)=>{
+          const a=e.accelerationIncludingGravity; if(!a) return;
+          const jx=(a.x||0), jy=(a.y||0), jz=(a.z||0);
+          const mag=Math.sqrt(jx*jx + jy*jy + jz*jz);
+          energy += (Math.min(1, mag/30) - energy) * 0.2;
+          updateHud();
+        },{passive:true});
+        haveMotion=true; updateStatus('motion enabled');
+      }catch{ updateStatus('motion error'); }
     }
 
-    function showUnsupported(msg){
-      unsupportedBox.style.display='block';
-      unsupportedBox.innerHTML = `<b>Heads up:</b> ${msg}<br/><br/>
-        <small>For true world-anchored AR on iPhone/iPad, consider a WebAR SDK (8th Wall / Niantic Lightship) or a native app (ARKit) with GeoAnchors.</small>`;
+    /* =========================
+       Pointer input
+       ========================= */
+    function attachPointer(){
+      if(!canvasElt) return;
+      const getXY=(e)=>{ const r=canvasElt.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top}; };
+
+      canvasElt.addEventListener('pointerdown',(e)=>{
+        if(isLocked || zoomMode) return;
+        if(inputMode!=='pointer') return;
+        pointerActive=true; canvasElt.setPointerCapture(e.pointerId);
+        const {x,y}=getXY(e); sprayAt(x,y,e.pressure);
+        e.preventDefault();
+      },{passive:false});
+
+      canvasElt.addEventListener('pointermove',(e)=>{
+        if(isLocked || zoomMode) return;
+        if(inputMode!=='pointer' || !pointerActive) return;
+        const {x,y}=getXY(e); sprayAt(x,y,e.pressure);
+        e.preventDefault();
+      },{passive:false});
+
+      const end=(e)=>{
+        if(isLocked || zoomMode) return;
+        if(inputMode!=='pointer') return;
+        pointerActive=false; window._lastP=null; e.preventDefault();
+      };
+      canvasElt.addEventListener('pointerup',end,{passive:false});
+      canvasElt.addEventListener('pointercancel',end,{passive:false});
+      canvasElt.addEventListener('pointerout',end,{passive:false});
+      canvasElt.addEventListener('pointerleave',end,{passive:false});
     }
+
+    /* =========================
+       UI wiring
+       ========================= */
+    function attachUI(){
+      const $=id=>document.getElementById(id);
+      const panel=$('panel');
+      $('menuBtn').onclick=()=>panel.classList.toggle('open');
+      $('closePanel').onclick=()=>panel.classList.remove('open');
+
+      $('modeBtn').onclick=()=>{
+        if(isLocked){ updateStatus('Finalised — switch disabled'); return; }
+        mode=(mode==='free')?'photo':'free';
+        $('modeBtn').textContent=(mode==='free'?'Free-Air':'Photo-Wall');
+        $('photoRow').classList.toggle('hidden', mode!=='photo');
+        $('freeRow').classList.toggle('hidden', mode!=='free');
+        clearVisibleLayers();
+      };
+
+      $('motionBtn').onclick = enableMotion;
+      $('inputSel').oninput = (e)=>{ inputMode = e.target.value; updateHud(); };
+
+      // Rainbow colour icons
+      const paintInput=$('paintColor'), paintDot=$('paintDot');
+      const bgInput=$('bgColor'), bgDot=$('bgDot'), bgPick=$('bgPick');
+      function syncPaint(){ brushColor = paintInput.value; paintDot.style.background = brushColor; }
+      function syncBGFromSwatch(){ freeBgColour = bgInput.value; bgDot.style.background = freeBgColour; if(bgPick) bgPick.value = freeBgColour; }
+      function syncBGFromPanel(){ freeBgColour = bgPick.value; bgInput.value = freeBgColour; bgDot.style.background = freeBgColour; }
+      paintInput.addEventListener('input', syncPaint);
+      paintInput.addEventListener('change', syncPaint);
+      bgInput.addEventListener('input', syncBGFromSwatch);
+      bgInput.addEventListener('change', syncBGFromSwatch);
+      if(bgPick){
+        bgPick.addEventListener('input', syncBGFromPanel);
+        bgPick.addEventListener('change', syncBGFromPanel);
+      }
+      syncPaint(); syncBGFromSwatch();
+      $('fadeRange').oninput = (e)=>{ fadeAlpha=parseInt(e.target.value,10); };
+
+      // Zoom
+      $('zoomToggle').onclick = ()=> setZoomMode(!zoomMode);
+      document.getElementById('zoomHud').classList.add('hidden');
+
+      // Save / Finalise / Versioning
+      $('saveFlatBtn').onclick   = saveFlattened;
+      $('saveLayersBtn').onclick = saveAllLayers;
+      $('finaliseBtn').onclick   = finalisePiece;
+      $('newVersionBtn').onclick = beginNewVersion;
+
+      // Layers ops
+      $('commitVisibleBtn').onclick = commitVisibleToBase;
+      $('clearVisibleBtn').onclick  = clearVisibleLayers;
+      $('addLayerBtn').onclick     = ()=>{ if(isLocked) return; addLayer(); renderLayerList(); };
+      $('dupLayerBtn').onclick     = ()=>{ if(isLocked) return; duplicateLayer(); renderLayerList(); };
+      $('delLayerBtn').onclick     = ()=>{ if(isLocked) return; deleteLayer(); renderLayerList(); };
+      $('moveUpBtn').onclick       = ()=>{ if(isLocked) return; moveLayer(-1); renderLayerList(); };
+      $('moveDownBtn').onclick     = ()=>{ if(isLocked) return; moveLayer(+1); renderLayerList(); };
+
+      $('helpClose').onclick = ()=> $('help').classList.remove('open');
+
+      // Caps
+      $('capSel').oninput = e=>{
+        if(isLocked) return;
+        const id=e.target.value; applyCap(id);
+        setControlsLocked(id!=='custom');
+        $('sizeFlow').classList.toggle('hidden', id!=='custom');
+        $('designerRow').classList.toggle('hidden', id!=='custom');
+      };
+      $('sizeRange').oninput = e=>{ brushSize=parseInt(e.target.value,10); baseCapSize=brushSize; };
+      $('flowRange').oninput = e=> flow=parseInt(e.target.value,10);
+      $('fanEnable').oninput = e=>{ fanEnabled=e.target.checked; $('fanRow').classList.toggle('hidden', !fanEnabled); };
+      $('fanStrength').oninput = e=> fanStrength=parseInt(e.target.value,10);
+      $('fanFeather').oninput  = e=> fanFeather=parseInt(e.target.value,10);
+      $('dripEnable').oninput = e=>{ dripEnabled=e.target.checked; $('dripRow').classList.toggle('hidden', !dripEnabled); };
+      $('dripStrength').oninput = e=> dripStrength=parseInt(e.target.value,10);
+      $('anisoRange').oninput = e=> anisotropy=parseInt(e.target.value,10);
+      $('fanLen').oninput     = e=> fanLength=parseInt(e.target.value,10);
+      $('fanThick').oninput   = e=> fanThickness=parseInt(e.target.value,10);
+      $('coreHard').oninput   = e=> coreHardness=parseInt(e.target.value,10);
+
+      // Photo inputs
+      $('fileInput')?.addEventListener('change',(ev)=>{ if(isLocked) return; if(ev.target.files && ev.target.files[0]) loadPhotoFromFile(ev.target.files[0]); });
+      $('zoomRange')?.addEventListener('input', e=>{ zoomFactorPhoto=parseInt(e.target.value,10)/100; });
+      $('fitBtn').onclick = ()=>{ computeBaseFit(); photoOffset={x:0,y:0}; zoomFactorPhoto=1; };
+      $('oneBtn').onclick = ()=>{ computeBaseFit(); zoomFactorPhoto=Math.max(0.1,Math.min(3.0,1/baseFitScale)); photoOffset={x:0,y:0}; };
+
+      // Movement tuning
+      $('mvGain').oninput  = e=>{ mvGain = parseInt(e.target.value,10)/100; };
+      $('mvSmooth').oninput= e=>{ const v=parseInt(e.target.value,10); mvSmooth = map(v,1,95,0.01,0.95,true); };
+      $('mvDead').oninput  = e=>{ mvDead = radians(parseInt(e.target.value,10)); };
+      $('mvHori').oninput  = e=>{ mvHori = e.target.checked; };
+      $('mvInvX').oninput  = e=>{ mvInvX = e.target.checked; };
+      $('mvInvY').oninput  = e=>{ mvInvY = e.target.checked; };
+      $('mvCal').onclick   = calibrateMotion;
+
+      updateHud();
+    }
+
+    /* =========================
+       Caps / presets
+       ========================= */
+    function setControlsLocked(locked){
+      controlsLocked=locked;
+      ['sizeRange','flowRange','anisoRange','fanLen','fanThick','coreHard'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.disabled=locked;
+      });
+      if(!locked) baseCapSize = brushSize;
+    }
+    function applyCap(id){
+      const C={
+        ultra_skinny:{ size:10, flow:18, hard:70, len:120, thick:3  },
+        skinny:      { size:13, flow:26, hard:60, len:160, thick:5  },
+        medium:      { size:16, flow:34, hard:45, len:190, thick:7  },
+        fat:         { size:22, flow:58, hard:40, len:280, thick:12 },
+        super_fat:   { size:30, flow:88, hard:30, len:400, thick:16 }
+      };
+      if(id==='custom'){ baseCapSize=brushSize; return; }
+      const p=C[id]; if(!p) return;
+      brushSize=p.size; flow=p.flow; coreHardness=p.hard; fanLength=p.len; fanThickness=p.thick;
+      baseCapSize=brushSize;
+      fanEnabled=false; fanStrength=0;
+      document.getElementById('fanEnable').checked=false;
+      document.getElementById('fanStrength').value=0;
+      document.getElementById('fanRow').classList.add('hidden');
+      const sr=document.getElementById('sizeRange'); if(sr) sr.value=brushSize;
+      const fr=document.getElementById('flowRange'); if(fr) fr.value=flow;
+      const ch=document.getElementById('coreHard'); if(ch) ch.value=coreHardness;
+      const fl=document.getElementById('fanLen'); if(fl) fl.value=fanLength;
+      const ft=document.getElementById('fanThick'); if(ft) ft.value=fanThickness;
+    }
+
+    /* =========================
+       Layers data + UI
+       ========================= */
+    function addLayer(name){
+      const idx = layers.length+1;
+      const g=createGraphics(windowWidth, windowHeight); g.clear();
+      layers.push({ name: name||`Layer ${idx}`, gfx:g, visible:true, id: randId() });
+      activeIndex = layers.length-1;
+      updateActiveName();
+    }
+    function duplicateLayer(){
+      if(layers.length===0){ addLayer(); return; }
+      const L=layers[activeIndex];
+      const g=createGraphics(windowWidth, windowHeight); g.clear(); g.image(L.gfx,0,0);
+      layers.splice(activeIndex+1,0,{ name: L.name+' copy', gfx:g, visible:L.visible, id: randId() });
+      activeIndex++;
+      updateActiveName();
+    }
+    function deleteLayer(){
+      if(layers.length<=1){ layers[0].gfx.clear(); return; }
+      layers[activeIndex].gfx.remove();
+      layers.splice(activeIndex,1);
+      activeIndex = Math.max(0, activeIndex-1);
+      updateActiveName();
+    }
+    function moveLayer(delta){
+      if(layers.length<=1) return;
+      const i=activeIndex, j=i+delta;
+      if(j<0 || j>=layers.length) return;
+      const tmp=layers[i]; layers[i]=layers[j]; layers[j]=tmp;
+      activeIndex=j;
+      updateActiveName();
+    }
+    function commitVisibleToBase(){
+      for(const L of layers){ if(L.visible) baseLayer.image(L.gfx,0,0); }
+      updateStatus('Committed visible to Base');
+    }
+    function clearVisibleLayers(){ for(const L of layers){ if(L.visible) L.gfx.clear(); } window._lastP=null; }
+
+    function renderLayerList(){
+      const list=document.getElementById('layersList');
+      list.innerHTML='';
+      layers.forEach((L,idx)=>{
+        const row=document.createElement('div');
+        row.className='layer-item'+(idx===activeIndex?' active':'');
+        row.dataset.idx=idx;
+
+        const eye=document.createElement('button');
+        eye.className='icbtn'; eye.title='Show/Hide';
+        eye.innerHTML=`<span class="ic">${L.visible?'👁️':'🚫'}</span>`;
+        eye.onclick=()=>{ if(isLocked) return; L.visible=!L.visible; renderLayerList(); };
+        row.appendChild(eye);
+
+        const radio=document.createElement('input');
+        radio.type='radio'; radio.name='activeLayer'; radio.checked=(idx===activeIndex);
+        radio.oninput=()=>{ if(isLocked) return; activeIndex=idx; renderLayerList(); updateActiveName(); };
+        row.appendChild(radio);
+
+        const name=document.createElement('input');
+        name.className='layer-name'; name.value=L.name; name.spellcheck=false; name.disabled=isLocked;
+        name.onchange=()=>{ L.name=name.value.trim()||L.name; updateActiveName(); };
+        row.appendChild(name);
+
+        const up=document.createElement('button'); up.className='icbtn'; up.title='Move Up'; up.textContent='▲'; up.disabled=isLocked;
+        up.onclick=()=>{ if(idx>0){ activeIndex=idx; moveLayer(-1); renderLayerList(); } };
+        row.appendChild(up);
+
+        const down=document.createElement('button'); down.className='icbtn'; down.title='Move Down'; down.textContent='▼'; down.disabled=isLocked;
+        down.onclick=()=>{ if(idx<layers.length-1){ activeIndex=idx; moveLayer(+1); renderLayerList(); } };
+        row.appendChild(down);
+
+        list.appendChild(row);
+      });
+      updateActiveName();
+    }
+    function updateActiveName(){
+      const el=document.getElementById('activeLayerName');
+      el.textContent = layers[activeIndex]?.name || '—';
+    }
+    function randId(){ return Math.random().toString(36).slice(2,14); }
+
+    /* =========================
+       Saving
+       ========================= */
+    function saveFlattened(){
+      const out=createGraphics(width, height);
+      if(mode==='photo' && bgImg){
+        out.background(0,0);
+        out.push(); out.translate(width/2+photoOffset.x, height/2+photoOffset.y);
+        out.scale(baseFitScale*zoomFactorPhoto); out.imageMode(CENTER); out.image(bgImg,0,0); out.pop();
+      }else{
+        out.background(freeBgColour);
+      }
+      out.image(baseLayer,0,0);
+      for(const L of layers){ if(L.visible) out.image(L.gfx,0,0); }
+      triggerDownload(out, 'Flattened.png'); out.remove();
+    }
+    function saveAllLayers(){
+      triggerDownload(baseLayer,'Base.png');
+      layers.forEach((L,i)=> triggerDownload(L.gfx, `${sanitizeName(L.name)||'Layer'}-${i+1}.png`));
+      saveFlattened();
+    }
+    function triggerDownload(gfx, filename){
+      const link=document.createElement('a'); link.download=filename; link.href=gfx.elt.toDataURL('image/png');
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
+    function sanitizeName(s){ return (s||'').replace(/[^\w\-]+/g,'_'); }
+
+    /* =========================
+       Visuals & HUD
+       ========================= */
+    function drawChecker(){ const s=40; noStroke(); for(let y=0;y<height;y+=s){ for(let x=0;x<width;x+=s){
+      const odd=((x+y)/s)%2===0; fill(odd?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.02)'); rect(x,y,s,s);} } }
+    function updateHud(){
+      document.getElementById('status').textContent=(isLocked?'Finalised (locked)': (inputMode==='motion'?'move/tilt to draw':'drag or Pencil to draw'));
+      document.getElementById('inputHud').textContent=(inputMode==='motion'?'Motion':'Pointer');
+      document.getElementById('b').textContent=(beta==null?'—':beta.toFixed(1));
+      document.getElementById('g').textContent=(gamma==null?'—':gamma.toFixed(1));
+      document.getElementById('en').textContent=energy.toFixed(2);
+    }
+    function updateStatus(msg){ document.getElementById('status').textContent=msg; }
+
+    /* =========================
+       Helpers
+       ========================= */
+    function normalizeAngle(a){ while(a> Math.PI) a-=TWO_PI; while(a<-Math.PI) a+=TWO_PI; return a; }
+
+    /* =========================
+       Top-level bindings
+       ========================= */
+    document.getElementById('zoomToggle').addEventListener('click', ()=> setZoomMode(!zoomMode));
+    document.getElementById('motionBtn').addEventListener('click', enableMotion);
   </script>
 </body>
 </html>
