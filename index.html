@@ -1,743 +1,594 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-  <title>Air Graffiti — Input Switch (Pointer / Motion)</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-  <style>
-    :root { --bg:#0b0f18; --panel:rgba(0,0,0,.58); --fg:#fff; --grab:#9ca3af; }
-    html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-    canvas{display:block;touch-action:none}
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Air Graffiti — Compact Mobile UI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<style>
+  :root{--bg:#0b0f18;--fg:#fff;--panel:rgba(0,0,0,.65);--accent:#6ee7ff;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  canvas{display:block;touch-action:none}
 
-    /* Full panel (iPad/desktop) */
-    .panel{
-      position:fixed;left:12px;top:12px;z-index:10;display:grid;gap:10px;padding:12px 14px;
-      background:var(--panel);backdrop-filter:blur(6px);border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:14px;max-width:min(96vw,960px)
-    }
-    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .grp{display:grid;gap:8px}
-    .grp>h4{margin:0;font-size:12px;letter-spacing:.04em;opacity:.9;text-transform:uppercase}
-    label{opacity:.9}
-    select,input[type="color"],input[type="range"],input[type="checkbox"],button{
-      border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb;box-shadow:0 6px 16px rgba(0,0,0,.25)
-    }
-    input[type="range"]{width:140px}
-    input[type="checkbox"]{width:auto;height:auto;padding:0;box-shadow:none;transform:translateY(1px)}
-    button.action{background:#6ee7ff;color:#06121a;font-weight:800}
-    button.warn{background:#ffd166;color:#241a05;font-weight:800}
-    .hud{position:fixed;right:12px;bottom:12px;background:var(--panel);padding:10px 12px;border-radius:12px;z-index:5}
-    .overlay{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.78);z-index:20;text-align:left;padding:24px}
-    .card{background:#111827;color:#fff;padding:20px;border-radius:16px;max-width:760px}
-    .hidden{display:none}
-    input[type=file]{display:none}
-    .compact .adv{display:none}
-    .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#111;padding:2px 6px;border-radius:6px}
-    .spacer{flex:1}
-    .locknote{opacity:.8;font-size:12px}
+  /* Top micro-toolbar */
+  .toolbar{
+    position:fixed;top:10px;left:10px;z-index:20;display:flex;gap:8px;align-items:center;
+    background:var(--panel);backdrop-filter:blur(6px);padding:8px 10px;border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.45)
+  }
+  .btn{border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb}
+  .btn.primary{background:var(--accent);color:#06121a;font-weight:800}
+  .chip{font-size:12px;opacity:.9}
+  .swatch{
+    width:28px;height:28px;border-radius:8px;border:2px solid rgba(255,255,255,.75);
+    box-shadow:0 4px 14px rgba(0,0,0,.35); cursor:pointer
+  }
+  #colorInput{position:absolute;left:-9999px}
 
-    /* Pull-down drawer for mobile */
-    .drawer{
-      position:fixed;left:0;right:0;top:0;z-index:15;background:var(--panel);backdrop-filter:blur(6px);
-      border-bottom-left-radius:16px;border-bottom-right-radius:16px;
-      box-shadow:0 16px 40px rgba(0,0,0,.5);
-      transform:translateY(-85%); /* mostly hidden, leave handle visible */
-      transition:transform .22s ease;
-      padding:8px 12px 14px;
-    }
-    .drawer.open{ transform:translateY(0); }
-    .grab{ display:flex;justify-content:center;align-items:center;width:100%;padding:8px 0 10px;touch-action:pan-y; }
-    .grab .bar{ width:64px;height:6px;background:var(--grab);border-radius:8px;opacity:.85; }
-    .drawer .rows{display:grid;gap:10px}
-    .drawer .row label{font-size:12px;opacity:.92}
-    .mini-actions{display:flex;gap:8px;justify-content:space-between}
-    .mini-actions>button{flex:1}
-
-    /* Phone: use drawer; hide big panel */
-    @media (max-width:600px){
-      .panel{display:none}
-      .hud{right:8px;bottom:8px}
-      input[type="range"]{width:120px}
-    }
-    /* iPad/desktop: show big panel; hide drawer */
-    @media (min-width:601px){
-      .drawer{display:none}
-    }
-
-    /* iPad / large screens styling bump */
-    @media (min-width: 768px) {
-      .panel { font-size: 15px; gap: 12px; }
-      select, input[type="color"], input[type="range"], input[type="checkbox"], button {
-        padding: 10px 12px; border-radius: 12px;
-      }
-      input[type="range"] { width: 180px; }
-    }
-  </style>
+  /* Modal panel */
+  .panel{
+    position:fixed;inset:auto 10px 10px 10px;bottom:10px;z-index:30;max-width:820px;
+    background:var(--panel);backdrop-filter:blur(8px);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.55);
+    padding:12px;display:none
+  }
+  .panel.open{display:block}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grp{display:grid;gap:8px;margin-top:6px}
+  .grp>h4{margin:0;font-size:12px;letter-spacing:.04em;opacity:.9;text-transform:uppercase}
+  select,input[type="range"],input[type="checkbox"],button{
+    border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#e5e7eb
+  }
+  input[type="range"]{width:160px}
+  input[type="checkbox"]{width:auto;height:auto;padding:0}
+  .hud{position:fixed;right:10px;bottom:10px;background:var(--panel);padding:8px 10px;border-radius:10px;z-index:10;font-size:12px}
+  .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#111;padding:2px 6px;border-radius:6px}
+  .hidden{display:none}
+  @media (max-width:600px){ input[type="range"]{width:130px} }
+</style>
 </head>
 <body>
 
-  <!-- Pull-down drawer (phones) -->
-  <div id="drawer" class="drawer" aria-label="Tool Drawer">
-    <div class="grab" id="grab"><div class="bar"></div></div>
-    <div class="rows">
-      <div class="row">
-        <label>Mode</label>
-        <button id="mMode" class="action">Free-Air</button>
+<!-- Tiny toolbar -->
+<div class="toolbar">
+  <button id="menuBtn" class="btn">Menu</button>
+  <button id="modeBtn" class="btn">Free-Air</button>
+  <button id="motionBtn" class="btn">Enable Motion</button>
+  <select id="inputSel" class="btn">
+    <option value="pointer" selected>Pointer</option>
+    <option value="motion">Motion</option>
+  </select>
+  <div id="colourBtn" class="swatch" title="Colour"></div>
+  <input id="colorInput" type="color" value="#6ee7ff"/>
+</div>
 
-        <label>Colour</label>
-        <input id="mColor" type="color" value="#6ee7ff"/>
-
-        <label>Input</label>
-        <select id="mInput">
-          <option value="pointer" selected>Pointer (Pencil/Touch)</option>
-          <option value="motion">Motion (Tilt/Move)</option>
-        </select>
-        <button id="mMotionPerm">Enable Motion</button>
-
-        <span class="spacer"></span>
-        <button id="mHelp">Help</button>
-      </div>
-
-      <div class="grp">
-        <h4>Nibs</h4>
-        <div class="row">
-          <label>Cap</label>
-          <select id="mCap">
-            <option value="ultra_skinny" selected>Ultra Skinny</option>
-            <option value="skinny">Skinny</option>
-            <option value="medium">Medium</option>
-            <option value="fat">Fat</option>
-            <option value="super_fat">Super Fat</option>
-            <option value="custom">Custom</option>
-          </select>
-
-          <!-- Only in Custom -->
-          <span id="mSizeFlow" class="row">
-            <label>Size</label><input id="mSize" type="range" min="4" max="64" value="14"/>
-            <label>Flow</label><input id="mFlow" type="range" min="1" max="100" value="36"/>
-          </span>
-        </div>
-
-        <div class="row">
-          <label class="row" style="gap:6px;"><input type="checkbox" id="mDrip"/> Drip</label>
-          <span id="mDripRow" class="hidden">
-            <label>Strength</label><input id="mDripStrength" type="range" min="0" max="100" value="45"/>
-          </span>
-
-          <label class="row" style="gap:16px;margin-left:16px;"><input type="checkbox" id="mFan"/> Fan</label>
-          <span id="mFanRow" class="hidden">
-            <label>Strength</label><input id="mFanStrength" type="range" min="0" max="100" value="0"/>
-            <label>Feather</label><input id="mFanFeather" type="range" min="0" max="100" value="35"/>
-          </span>
-        </div>
-
-        <!-- Custom nib designer (Custom only) -->
-        <div class="row" id="mDesigner" style="opacity:.6">
-          <label>Anisotropy</label><input id="mAniso" type="range" min="0" max="100" value="0"/>
-          <label>Fan Length</label><input id="mLen" type="range" min="60" max="520" value="180"/>
-          <label>Fan Thickness</label><input id="mThick" type="range" min="1" max="42" value="6"/>
-          <label>Core Hardness</label><input id="mHard" type="range" min="0" max="100" value="35"/>
-        </div>
-      </div>
-
-      <div class="mini-actions">
-        <button id="mClear" class="warn">Clear</button>
-        <button id="mSave" class="action">Save</button>
-      </div>
-    </div>
+<!-- Settings panel -->
+<div id="panel" class="panel">
+  <div class="row">
+    <div class="chip">Spray Can</div>
+    <span style="flex:1"></span>
+    <button id="saveBtn" class="btn primary">Save</button>
+    <button id="clearBtn" class="btn">Clear (Space)</button>
+    <button id="helpBtn" class="btn">Help</button>
+    <button id="closePanel" class="btn">Close</button>
   </div>
 
-  <!-- Full panel (iPad/desktop) -->
-  <div class="panel compact" id="panelRoot">
+  <div class="grp">
+    <h4>Nibs</h4>
     <div class="row">
-      <button id="modeBtn" class="action">Mode: <span id="modeLabel">Free-Air</span></button>
-
-      <label>Input</label>
-      <select id="inputSel" title="Choose how to draw">
-        <option value="pointer" selected>Pointer (Pencil/Touch)</option>
-        <option value="motion">Motion (Tilt/Move)</option>
+      <label>Cap</label>
+      <select id="capSel">
+        <option value="ultra_skinny" selected>Ultra Skinny</option>
+        <option value="skinny">Skinny</option>
+        <option value="medium">Medium</option>
+        <option value="fat">Fat</option>
+        <option value="super_fat">Super Fat</option>
+        <option value="custom">Custom</option>
       </select>
-      <button id="motionBtn">Enable Motion</button>
 
-      <button id="clearBtn" class="warn" title="Space">Clear</button>
-      <button id="saveBtn" class="action">Save</button>
-      <span class="spacer"></span>
-      <button id="menuBtn">Menu</button>
-      <button id="helpBtn">Help</button>
+      <!-- Only visible in Custom -->
+      <span id="sizeFlow" class="row hidden">
+        <label>Size</label><input id="sizeRange" type="range" min="4" max="64" value="14"/>
+        <label>Flow</label><input id="flowRange" type="range" min="1" max="100" value="36"/>
+      </span>
     </div>
 
-    <div class="grp">
-      <h4>Spray Can</h4>
-      <div class="row">
-        <label>Cap</label>
-        <select id="capSel">
-          <option value="ultra_skinny" selected>Ultra Skinny (~0.4–1.5 cm)</option>
-          <option value="skinny">Skinny (~0.6–2.5 cm)</option>
-          <option value="medium">Medium (~1–4 cm)</option>
-          <option value="fat">Fat (~3–10 cm)</option>
-          <option value="super_fat">Super Fat (up to ~30 cm)</option>
-          <option value="custom">Custom (adjustable)</option>
-        </select>
+    <div class="row">
+      <label class="row" style="gap:6px;">
+        <input type="checkbox" id="fanEnable"/> Fan
+      </label>
+      <span id="fanRow" class="row hidden">
+        <label>Strength</label><input id="fanStrength" type="range" min="0" max="100" value="0"/>
+        <label>Feather</label><input id="fanFeather" type="range" min="0" max="100" value="35"/>
+      </span>
 
-        <span id="sizeFlowGroup" class="row">
-          <label>Size</label><input id="sizeRange" type="range" min="4" max="64" value="14"/>
-          <label>Flow</label><input id="flowRange" type="range" min="1" max="100" value="36"/>
-        </span>
-
-        <label>Colour</label><input id="colorPick" type="color" value="#6ee7ff"/>
-      </div>
-
-      <div class="row adv" id="designerRow">
-        <label>Anisotropy</label><input id="anisoRange" type="range" min="0" max="100" value="0"/>
-        <label>Fan Length</label><input id="fanLen" type="range" min="60" max="520" value="180"/>
-        <label>Fan Thickness</label><input id="fanThick" type="range" min="1" max="42" value="6"/>
-        <label>Core Hardness</label><input id="coreHard" type="range" min="0" max="100" value="35"/>
-      </div>
-
-      <div class="row" id="lockRow">
-        <span class="locknote">Presets lock Size/Flow/Geometry. Add <b>Fan</b> / <b>Drip</b>, or choose <b>Custom</b> to edit.</span>
-      </div>
-
-      <div class="row">
-        <label class="row" style="gap:6px;"><input type="checkbox" id="dripEnable"/> Drip</label>
-        <span id="dripRow" class="hidden">
-          <label>Strength</label><input id="dripStrength" type="range" min="0" max="100" value="45"/>
-        </span>
-
-        <label class="row" style="gap:16px;margin-left:16px;"><input type="checkbox" id="fanEnable"/> Fan</label>
-        <span id="fanRow" class="hidden">
-          <label>Strength (Size)</label><input id="fanStrength" type="range" min="0" max="100" value="0"/>
-          <label>Feather</label><input id="fanFeather" type="range" min="0" max="100" value="35"/>
-        </span>
-      </div>
+      <label class="row" style="gap:6px;margin-left:16px;">
+        <input type="checkbox" id="dripEnable"/> Drip
+      </label>
+      <span id="dripRow" class="row hidden">
+        <label>Strength</label><input id="dripStrength" type="range" min="0" max="100" value="45"/>
+      </span>
     </div>
 
-    <div id="freeRow" class="grp">
-      <h4>Free-Air</h4>
-      <div class="row">
-        <label>Background</label><input id="bgPick" type="color" value="#0b0f18"/>
-        <label>Fade</label><input id="fadeRange" type="range" min="0" max="40" value="12"/>
-      </div>
-    </div>
-
-    <div id="photoRow" class="grp hidden">
-      <h4>Photo-Wall</h4>
-      <div class="row">
-        <button id="loadBtn">Load Photo</button>
-        <label for="fileInput" class="action" style="cursor:pointer;">Upload / Camera</label>
-        <input id="fileInput" type="file" accept="image/*" capture="environment">
-      </div>
-      <div class="row">
-        <label>Zoom</label><input id="zoomRange" type="range" min="10" max="300" value="100" />
-        <button id="zoomOutBtn">−</button><button id="zoomInBtn">+</button>
-        <button id="fitBtn">Fit</button><button id="oneBtn">100%</button>
-        <span style="opacity:.8">Pan: <span class="kbd">Shift</span> + drag • pinch/wheel</span>
-      </div>
+    <!-- Custom geometry (unlocked only in Custom) -->
+    <div id="designerRow" class="row hidden">
+      <label>Anisotropy</label><input id="anisoRange" type="range" min="0" max="100" value="0"/>
+      <label>Fan Length</label><input id="fanLen" type="range" min="60" max="520" value="180"/>
+      <label>Fan Thickness</label><input id="fanThick" type="range" min="1" max="42" value="6"/>
+      <label>Core Hardness</label><input id="coreHard" type="range" min="0" max="100" value="35"/>
     </div>
   </div>
 
-  <!-- HUD -->
-  <div class="hud" id="hud">Status: <span id="status">drag or Pencil to draw</span> • Input: <span id="inputHud">Pointer</span> • β <span id="b">—</span> γ <span id="g">—</span> • energy <span id="en">—</span></div>
-
-  <!-- Help overlay -->
-  <div id="help" class="overlay">
-    <div class="card">
-      <h2 style="margin-top:0">How to use</h2>
-      <ul>
-        <li><b>Input</b>: switch between <b>Pointer</b> (Apple Pencil / touch / mouse) and <b>Motion</b> (tilt/move the phone).</li>
-        <li>Tap <b>Enable Motion</b> once to grant permission, then draw by moving the device.</li>
-        <li><b>Presets</b> are round & locked; add <b>Fan</b> (Strength = fin size) and/or <b>Drip</b>. <b>Custom</b> unlocks geometry.</li>
-        <li>Fan rotates with device tilt (sprays horizontally). Pencil pressure adjusts size & flow.</li>
-        <li>On phones: open the pull-down bar at the top to change Colour & Nibs.</li>
-      </ul>
-      <p><button id="helpClose" class="action">Close</button></p>
+  <div id="freeRow" class="grp">
+    <h4>Free-Air</h4>
+    <div class="row">
+      <label>Background</label><input id="bgPick" type="color" value="#0b0f18"/>
+      <label>Fade</label><input id="fadeRange" type="range" min="0" max="40" value="12"/>
     </div>
   </div>
 
-  <script>
-    /* ========= State ========= */
-    let mode='free', bgImg=null, paintLayer, lastP=null;
+  <div id="photoRow" class="grp hidden">
+    <h4>Photo-Wall</h4>
+    <div class="row">
+      <label for="fileInput" class="btn primary" style="cursor:pointer;">Upload / Camera</label>
+      <input id="fileInput" type="file" accept="image/*" capture="environment" class="hidden">
+      <label>Zoom</label><input id="zoomRange" type="range" min="10" max="300" value="100"/>
+      <button id="fitBtn" class="btn">Fit</button>
+      <button id="oneBtn" class="btn">100%</button>
+    </div>
+  </div>
+</div>
 
-    // Input mode: 'pointer' | 'motion'
-    let inputMode='pointer';
+<!-- HUD -->
+<div class="hud" id="hud">
+  <span id="status">drag or Pencil to draw</span> • Input: <span id="inputHud">Pointer</span> • β <span id="b">—</span> γ <span id="g">—</span> • energy <span id="en">—</span>
+</div>
 
-    // device motion/orientation
-    let px=null, py=null, beta=null, gamma=null, energy=0, haveMotion=false;
-    const smoothing=0.12;
-    let haveOrientAngle=false, orientAngle=0, orientSmooth=0.18;
-    const FAN_ORIENTATION_OFFSET = Math.PI/2;
+<!-- Help -->
+<div id="help" class="panel" style="max-width:720px;top:10px;bottom:auto;">
+  <div class="grp">
+    <h4>Help</h4>
+    <div class="row" style="line-height:1.5">
+      <div>
+        <p><b>Pointer</b> = Apple Pencil / finger. <b>Motion</b> = tilt/move your phone.</p>
+        <ul>
+          <li>Tap <b>Enable Motion</b> once (iOS permission). Switch <b>Input</b> to Motion to draw by moving.</li>
+          <li><b>Colour</b>: tap the swatch in the top bar.</li>
+          <li><b>Presets</b> are round; you can add Fan/Drip. <b>Custom</b> unlocks geometry.</li>
+          <li><b>Space</b> clears paint. In Photo-Wall, use Zoom and Fit.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="row"><button id="helpClose" class="btn primary">Close</button></div>
+  </div>
+</div>
 
-    // direction smoothing fallback (for fan when no orientation yet)
-    let dirSmooth=0, dirInit=false;
+<script>
+/* ================== Core state ================== */
+let mode='free', bgImg=null, paintLayer, lastP=null;
 
-    // Free-Air
-    let fadeAlpha=12, freeBgColour='#0b0f18';
+let inputMode='pointer'; // 'pointer' | 'motion'
+let haveMotion=false, haveOrientAngle=false, orientAngle=0, orientSmooth=0.18;
+let beta=null, gamma=null, energy=0;
+const FAN_ORIENTATION_OFFSET = Math.PI/2;
+let px=null, py=null, smoothing=0.12;
 
-    // Base nib values
-    let brushSize=14, flow=36, brushColor='#6ee7ff';
-    let currentBrushSize=brushSize, currentFlow=flow, lastPressure=0.6;
+let dirSmooth=0, dirInit=false; // fallback direction (when no orientation)
+let fadeAlpha=12, freeBgColour='#0b0f18';
+let brushSize=14, flow=36, brushColor='#6ee7ff';
+let currentBrushSize=brushSize, currentFlow=flow, lastPressure=0.6;
 
-    // Geometry (custom) + fan sizing (strength)
-    let anisotropy=0, fanLength=180, fanThickness=6, coreHardness=35;
-    let dripEnabled=false, dripStrength=45;
-    let fanEnabled=false, fanStrength=0, fanFeather=35;
+// geometry (base; Custom can edit)
+let anisotropy=0, fanLength=180, fanThickness=6, coreHardness=35;
+// effects
+let dripEnabled=false, dripStrength=45;
+let fanEnabled=false, fanStrength=0, fanFeather=35;
+// lock
+let controlsLocked=true;
 
-    // Preset lock
-    let controlsLocked=true;
+// photo transforms
+let baseFitScale=1, zoomFactor=1, photoOffset={x:0,y:0};
 
-    // Photo transforms
-    let baseFitScale=1, zoomFactor=1, photoOffset={x:0,y:0};
+// canvas/pointer
+let canvasElt=null, pointerActive=false;
 
-    // Pointer
-    let pointerActive=false, canvasElt=null;
+/* ================== Setup / draw ================== */
+function setup(){
+  const cnv=createCanvas(windowWidth, windowHeight); canvasElt=cnv.elt;
+  paintLayer=createGraphics(windowWidth, windowHeight); paintLayer.clear();
+  background(freeBgColour);
+  attachUI();
+  attachPointer();
+  applyCap('ultra_skinny');
+  setControlsLocked(true);
+  updateHud();
+}
 
-    /* ========= Setup ========= */
-    function setup(){
-      const cnv=createCanvas(windowWidth, windowHeight); canvasElt=cnv.elt;
-      paintLayer=createGraphics(windowWidth, windowHeight); paintLayer.clear();
-      clearCanvas();
-      attachUI_desktop();
-      attachUI_mobile();
-      attachPointer();
-      applyCap('ultra_skinny');
-      setControlsLocked(true);
-      prepareMotion();
+function draw(){
+  if(mode==='free'){
+    push(); noStroke(); const c=color(freeBgColour); c.setAlpha(fadeAlpha); fill(c); rect(0,0,width,height); pop();
+  }else{
+    if(bgImg){ drawPhotoTransformed(); } else { drawChecker(); }
+  }
+  image(paintLayer,0,0);
+
+  if(inputMode==='motion' && haveMotion && (beta!=null || gamma!=null)){
+    const tx=map(constrain(gamma??0,-60,60),-60,60,0,width);
+    const ty=map(constrain(beta??0,0,90),0,90,0,height);
+    if(px==null||py==null){ px=tx; py=ty; }
+    px+=(tx-px)*smoothing; py+=(ty-py)*smoothing;
+    sprayAt(px,py,null);
+  }
+}
+
+function windowResized(){
+  resizeCanvas(windowWidth, windowHeight);
+  const nl=createGraphics(windowWidth, windowHeight); nl.clear();
+  if(paintLayer) nl.image(paintLayer,0,0,windowWidth,windowHeight);
+  paintLayer=nl;
+  if(bgImg){ computeBaseFit(); drawPhotoTransformed(); }
+}
+
+/* ================== Dynamics ================== */
+function setDynamicsForPressure(p){
+  const pr=(p==null||isNaN(p))?0.6:Math.max(0,Math.min(1,p));
+  lastPressure=pr;
+  currentBrushSize=brushSize*(0.6+0.8*pr);
+  currentFlow=flow*(0.4+0.8*pr);
+}
+
+/* ===== Eased fan sizing (gradual at start) ===== */
+function easeInCubic(s){ return s*s*s; }
+function getFanParams(){
+  let s=Math.max(0,Math.min(100,fanStrength))/100;
+  if(s<0.03) s=0;                    // deadzone near 0 = perfectly round
+  const e=easeInCubic(s);            // gentle start, ramps late
+  const scale=0.6+1.6*e;
+  const stretch=1.0+2.6*e;
+  const len=fanLength*scale;
+  const thick=Math.max(1,fanThickness*(0.65+1.35*e));
+  return {len,thick,stretch};
+}
+
+/* ================== Spray Engine ================== */
+function sprayAt(x,y,pressure=null){
+  setDynamicsForPressure(pressure);
+  const p=createVector(x,y);
+  if(lastP){
+    const steps=Math.max(1,int(p5.Vector.dist(p,lastP)/4));
+    for(let i=1;i<=steps;i++){
+      const t=i/steps, q=p5.Vector.lerp(lastP,p,t);
+      const dir=Math.atan2(q.y-lastP.y,q.x-lastP.x);
+      smoothDir(dir);
+
+      const wantFan=fanEnabled && fanStrength>0;
+      const ang=chooseSprayAngle(wantFan);
+
+      if(wantFan) doSprayCloudAnisoTight(q.x,q.y,ang);
+      else        doSprayCloudRound(q.x,q.y);
+
+      if(wantFan) stampFan(q.x,q.y,ang);
+      else        stampRoundCore(q.x,q.y);
+
+      if(dripEnabled && Math.random()<dripChance()) drawDrip(q.x,q.y,dripLen(),dripThick());
+    }
+  }else{
+    const wantFan=fanEnabled && fanStrength>0;
+    const ang=chooseSprayAngle(wantFan);
+    if(wantFan) doSprayCloudAnisoTight(p.x,p.y,ang); else doSprayCloudRound(p.x,p.y);
+    if(wantFan) stampFan(p.x,p.y,ang); else stampRoundCore(p.x,p.y);
+    if(dripEnabled && Math.random()<dripChance()) drawDrip(p.x,p.y,dripLen(),dripThick());
+  }
+  lastP=p;
+}
+
+function chooseSprayAngle(wantFan){
+  if(wantFan && haveOrientAngle) return orientAngle + FAN_ORIENTATION_OFFSET;
+  return dirSmooth + FAN_ORIENTATION_OFFSET;
+}
+function smoothDir(newDir){
+  if(!dirInit){ dirSmooth=newDir; dirInit=true; return; }
+  let d=normalizeAngle(newDir-dirSmooth); dirSmooth=dirSmooth + d*0.25;
+}
+function normalizeAngle(a){ while(a> Math.PI) a-=TWO_PI; while(a<-Math.PI) a+=TWO_PI; return a; }
+
+function doSprayCloudRound(x,y){
+  const density=Math.round(map(currentFlow,1,100,6,36))+Math.floor(energy*8);
+  for(let i=0;i<density;i++){
+    const r=random(currentBrushSize*0.25,currentBrushSize*(1.1+energy*0.8));
+    const a=random(TWO_PI);
+    sprayDot(x+r*Math.cos(a), y+r*Math.sin(a), 0.40+Math.random()*0.40);
+  }
+}
+
+/* Feather works here: higher feather = softer edge */
+function doSprayCloudAnisoTight(x,y,dir){
+  const {len,thick,stretch}=getFanParams();
+  const major=Math.max(currentBrushSize*0.9,len*0.40)*stretch; // along fin
+  const minor=Math.max(currentBrushSize*0.30,thick*0.85);      // across fin
+  const ux=Math.cos(dir), uy=Math.sin(dir), vx=-uy, vy=ux;
+
+  const baseDensity=map(currentFlow,1,100,10,42);
+  const density=Math.round(baseDensity + energy*8);
+
+  const softness = Math.max(0, Math.min(1, fanFeather/100));
+  const k = 6 - 4.8*softness; // 0 hard → 6, 100 soft → 1.2
+
+  for(let i=0;i<density;i++){
+    let a,b,tries=0;
+    do{ a=randomGaussian(0,0.33); b=randomGaussian(0,0.28); tries++; }while((a*a+b*b>1.0)&&tries<6);
+    const sx=x+(a*major)*ux+(b*minor)*vx;
+    const sy=y+(a*major)*uy+(b*minor)*vy;
+    const edge = Math.min(1, Math.abs(b));
+    const fall = Math.pow(1 - edge, k);
+    const alpha=(0.18 + 0.42*fall) * (0.8 + 0.4*lastPressure);
+    sprayDot(sx,sy,alpha);
+  }
+}
+
+function stampRoundCore(x,y){
+  paintLayer.noStroke(); const hard=coreHardness/100;
+  const baseA=lerp(0.18,0.70,hard); const c=color(brushColor); c.setAlpha(255*baseA);
+  paintLayer.fill(c); paintLayer.circle(x,y,currentBrushSize*lerp(0.95,0.60,hard));
+}
+function stampFan(x,y,dir){
+  const {len,thick}=getFanParams();
+  paintLayer.push(); paintLayer.translate(x,y); paintLayer.rotate(dir); paintLayer.noStroke();
+  const hard=coreHardness/100;
+  const halo=color(brushColor); halo.setAlpha(28);
+  paintLayer.fill(halo); paintLayer.rectMode(CENTER);
+  paintLayer.rect(0,0,len*1.04,Math.max(1,thick*1.4),Math.max(1,thick*0.7));
+  for(let i=0;i<2;i++){
+    const L=len*(1+(i?0.05:0)), T=thick*(1+(i?0.45:0));
+    const alpha=lerp(0.08,0.22,1-hard)*(i?1:0.6);
+    const c=color(brushColor); c.setAlpha(255*alpha);
+    paintLayer.fill(c); paintLayer.rectMode(CENTER);
+    paintLayer.rect(0,0,L,T,T*0.6);
+  }
+  const core=color(brushColor); core.setAlpha(255*lerp(0.45,0.80,hard));
+  paintLayer.fill(core); paintLayer.rectMode(CENTER);
+  paintLayer.rect(0,0,len,Math.max(1,thick*0.6),Math.max(1,thick*0.4));
+  paintLayer.pop();
+}
+function sprayDot(x,y,a=0.8){
+  paintLayer.noStroke(); const c=color(brushColor); c.setAlpha(255*a);
+  paintLayer.fill(c); const d=random(currentBrushSize*0.08,currentBrushSize*0.30);
+  paintLayer.circle(x,y,d);
+}
+
+/* ================== Drips ================== */
+function dripChance(){ return constrain(0.01 + dripStrength*0.003 + energy*0.08, 0, 0.30); }
+function dripLen(){ const mul=0.8+0.022*dripStrength, em=1.0+energy*1.3; return random(currentBrushSize*1.2,currentBrushSize*3.8)*mul*em; }
+function dripThick(){ return Math.max(2,currentBrushSize*(0.08+0.006*dripStrength)); }
+function drawDrip(x,y,len,thick){
+  paintLayer.push(); paintLayer.stroke(brushColor); paintLayer.strokeWeight(thick);
+  paintLayer.line(x,y,x,y+len); paintLayer.noStroke(); paintLayer.fill(brushColor);
+  paintLayer.circle(x,y+len,Math.max(2,thick*0.7)); paintLayer.pop();
+}
+
+/* ================== Motion (iOS permission safe) ================== */
+function getScreenAngle(){
+  if (typeof window.orientation === 'number') return window.orientation;
+  const a=(screen.orientation && typeof screen.orientation.angle==='number')?screen.orientation.angle:0;
+  return ((a+540)%360)-180;
+}
+function tiltToRadians(b,g){
+  const ang=getScreenAngle(); let deg;
+  if (ang===0) deg=g; else if(ang===90) deg=b; else if(ang===-90||ang===270) deg=-b; else deg=-g;
+  return radians(deg||0);
+}
+async function enableMotion(){
+  try{
+    // iOS 13+ permission gates
+    if (typeof DeviceOrientationEvent!=='undefined' &&
+        typeof DeviceOrientationEvent.requestPermission==='function'){
+      const r1 = await DeviceOrientationEvent.requestPermission();
+      if(r1!=='granted'){ updateStatus('motion denied'); return; }
+    }
+    if (typeof DeviceMotionEvent!=='undefined' &&
+        typeof DeviceMotionEvent.requestPermission==='function'){
+      const r2 = await DeviceMotionEvent.requestPermission();
+      // Some iOS versions don't implement this; ignore if undefined
+    }
+
+    // Listeners
+    window.addEventListener('deviceorientation',(ev)=>{
+      if (ev.gamma!=null) gamma=ev.gamma;
+      if (ev.beta!=null) beta=ev.beta;
+      if (ev.beta!=null || ev.gamma!=null){
+        const target=tiltToRadians(ev.beta,ev.gamma);
+        const delta=normalizeAngle(target - orientAngle);
+        orientAngle=orientAngle + delta*orientSmooth;
+        haveOrientAngle=true; haveMotion=true; updateHud();
+      }
+    },{passive:true});
+
+    window.addEventListener('devicemotion',(e)=>{
+      const a=e.accelerationIncludingGravity;
+      if(!a) return;
+      const jx=(a.x||0), jy=(a.y||0), jz=(a.z||0);
+      const mag=Math.sqrt(jx*jx + jy*jy + jz*jz);
+      energy += (Math.min(1, mag/30) - energy) * 0.2;
       updateHud();
-    }
+    },{passive:true});
 
-    function draw(){
-      if(mode==='free'){
-        push(); noStroke(); const c=color(freeBgColour); c.setAlpha(fadeAlpha); fill(c); rect(0,0,width,height); pop();
-      }else{
-        if(bgImg){ drawPhotoTransformed(); } else { drawChecker(); }
-      }
-      image(paintLayer,0,0);
+    haveMotion=true;
+    updateStatus('motion enabled');
+  }catch(err){
+    updateStatus('motion error');
+  }
+}
 
-      // Motion drawing when enabled explicitly
-      if(inputMode==='motion' && haveMotion && (beta!=null || gamma!=null)){
-        const tx=map(constrain(gamma??0,-60,60),-60,60,0,width);
-        const ty=map(constrain(beta??0,0,90),0,90,0,height);
-        if(px==null||py==null){ px=tx; py=ty; }
-        px+=(tx-px)*smoothing; py+=(ty-py)*smoothing;
-        sprayAt(px,py,null);
-      }
-    }
+/* ================== Pointer ================== */
+function attachPointer(){
+  if(!canvasElt) return;
+  const getXY=(e)=>{ const r=canvasElt.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top}; };
 
-    function windowResized(){
-      resizeCanvas(windowWidth, windowHeight);
-      const nl=createGraphics(windowWidth, windowHeight); nl.clear();
-      if(paintLayer) nl.image(paintLayer,0,0,windowWidth,windowHeight);
-      paintLayer=nl;
-      if(bgImg){ computeBaseFit(); drawPhotoTransformed(); }
-    }
+  canvasElt.addEventListener('pointerdown',(e)=>{
+    if(inputMode!=='pointer') return;               // ignore while in Motion mode
+    pointerActive=true;
+    // Important for iOS Safari: capture & preventDefault so painting works
+    canvasElt.setPointerCapture(e.pointerId);
+    const {x,y}=getXY(e);
+    sprayAt(x,y,e.pressure);
+    e.preventDefault();
+  },{passive:false});
 
-    /* ===== Dynamics (Pencil pressure) ===== */
-    function setDynamicsForPressure(p){
-      const pr=(p==null||isNaN(p))?0.6:Math.max(0,Math.min(1,p));
-      lastPressure=pr;
-      currentBrushSize=brushSize*(0.6+0.8*pr);
-      currentFlow=flow*(0.4+0.8*pr);
-    }
+  canvasElt.addEventListener('pointermove',(e)=>{
+    if(inputMode!=='pointer' || !pointerActive) return;
+    const {x,y}=getXY(e);
+    sprayAt(x,y,e.pressure);
+    e.preventDefault();
+  },{passive:false});
 
-    /* ===== Fan size from Strength (centre-anchored) ===== */
-    function getFanParams(){
-      const s=Math.max(0,Math.min(100,fanStrength))/100;
-      const scale=0.6+1.6*s;         // overall fin growth
-      const stretch=1.0+2.6*s;       // wider as it grows
-      const len=fanLength*scale;
-      const thick=Math.max(1,fanThickness*(0.65+1.35*s));
-      return {len,thick,stretch};
-    }
+  const end=(e)=>{
+    if(inputMode!=='pointer') return;
+    pointerActive=false; lastP=null; e.preventDefault();
+  };
+  canvasElt.addEventListener('pointerup',end,{passive:false});
+  canvasElt.addEventListener('pointercancel',end,{passive:false});
+  canvasElt.addEventListener('pointerout',end,{passive:false});
+  canvasElt.addEventListener('pointerleave',end,{passive:false});
+}
 
-    /* ===== Spray renderer ===== */
-    function sprayAt(x,y,pressure=null){
-      setDynamicsForPressure(pressure);
-      const p=createVector(x,y);
-      if(lastP){
-        const steps=Math.max(1,int(p5.Vector.dist(p,lastP)/4));
-        for(let i=1;i<=steps;i++){
-          const t=i/steps, q=p5.Vector.lerp(lastP,p,t);
-          const dir=Math.atan2(q.y-lastP.y,q.x-lastP.x);
-          smoothDir(dir);
+/* ================== UI ================== */
+function attachUI(){
+  const $=id=>document.getElementById(id);
 
-          const wantFan = fanEnabled && fanStrength>0;
-          const ang = chooseSprayAngle(wantFan);
+  // toolbar
+  const panel=$('panel');
+  $('menuBtn').onclick = ()=> panel.classList.toggle('open');
+  $('closePanel').onclick = ()=> panel.classList.remove('open');
 
-          if(wantFan) doSprayCloudAnisoTight(q.x,q.y,ang);
-          else        doSprayCloudRound(q.x,q.y);
+  $('modeBtn').onclick = ()=>{
+    mode=(mode==='free')?'photo':'free';
+    $('modeBtn').textContent=(mode==='free'?'Free-Air':'Photo-Wall');
+    $('photoRow').classList.toggle('hidden', mode!=='photo');
+    $('freeRow').classList.toggle('hidden', mode!=='free');
+    clearPaintingOnly();
+  };
 
-          if(wantFan) stampFan(q.x,q.y,ang);
-          else        stampRoundCore(q.x,q.y);
+  $('motionBtn').onclick = enableMotion;
 
-          if(dripEnabled && Math.random()<dripChance()) drawDrip(q.x,q.y,dripLen(),dripThick());
-        }
-      }else{
-        const wantFan = fanEnabled && fanStrength>0;
-        const ang = chooseSprayAngle(wantFan);
-        if(wantFan) doSprayCloudAnisoTight(p.x,p.y,ang); else doSprayCloudRound(p.x,p.y);
-        if(wantFan) stampFan(p.x,p.y,ang); else stampRoundCore(p.x,p.y);
-        if(dripEnabled && Math.random()<dripChance()) drawDrip(p.x,p.y,dripLen(),dripThick());
-      }
-      lastP=p;
-    }
+  $('inputSel').oninput = (e)=>{
+    inputMode = e.target.value;
+    updateHud();
+  };
 
-    function chooseSprayAngle(wantFan){
-      if(wantFan && haveOrientAngle) return orientAngle + FAN_ORIENTATION_OFFSET;
-      return dirSmooth + FAN_ORIENTATION_OFFSET; // fallback when not using device orientation yet
-    }
-    function smoothDir(newDir){
-      if(!dirInit){ dirSmooth=newDir; dirInit=true; return; }
-      let d=normalizeAngle(newDir-dirSmooth); dirSmooth=dirSmooth + d*0.25;
-    }
-    function normalizeAngle(a){ while(a> Math.PI) a-=TWO_PI; while(a<-Math.PI) a+=TWO_PI; return a; }
+  // Colour button is the swatch
+  const colourBtn=$('colourBtn'), colorInput=$('colorInput');
+  const syncSwatch=()=>{ colourBtn.style.background = colorInput.value; brushColor=colorInput.value; };
+  colourBtn.onclick = ()=> colorInput.click();
+  colorInput.oninput = syncSwatch;
+  syncSwatch();
 
-    function doSprayCloudRound(x,y){
-      const density=Math.round(map(currentFlow,1,100,6,36))+Math.floor(energy*8);
-      for(let i=0;i<density;i++){
-        const r=random(currentBrushSize*0.25,currentBrushSize*(1.1+energy*0.8));
-        const a=random(TWO_PI);
-        sprayDot(x+r*Math.cos(a), y+r*Math.sin(a), 0.40+Math.random()*0.40);
-      }
-    }
-    function doSprayCloudAnisoTight(x,y,dir){
-      const {len,thick,stretch}=getFanParams();
-      const major=Math.max(currentBrushSize*0.9,len*0.40)*stretch;
-      const minor=Math.max(currentBrushSize*0.30,thick*0.85);
-      const ux=Math.cos(dir), uy=Math.sin(dir), vx=-uy, vy=ux;
-      const baseDensity=map(currentFlow,1,100,10,42);
-      const density=Math.round(baseDensity + energy*8);
-      const feather=0.2+(fanFeather/100)*0.8, tryLimit=5;
+  // panel controls
+  $('saveBtn').onclick = ()=> saveCanvas('spray-can','png');
+  $('clearBtn').onclick = clearCanvas;
+  window.addEventListener('keydown',(e)=>{ if(e.key===' '){ e.preventDefault(); clearCanvas(); } });
 
-      for(let i=0;i<density;i++){
-        let a,b,tries=0;
-        do{ a=randomGaussian(0,0.33); b=randomGaussian(0,0.28); tries++; }while((a*a+b*b>1.0)&&tries<tryLimit);
-        const sx=x+(a*major)*ux+(b*minor)*vx;
-        const sy=y+(a*major)*uy+(b*minor)*vy;
-        const edge=Math.min(1,Math.abs(b));
-        const fall=smoothstep(1.0,feather,1.0-edge);
-        const alpha=(0.25+0.35*fall)*(0.8+0.4*lastPressure);
-        sprayDot(sx,sy,alpha);
-      }
-    }
-    function smoothstep(e0,e1,x){ const t=constrain((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
-    function stampRoundCore(x,y){
-      paintLayer.noStroke(); const hard=coreHardness/100;
-      const baseA=lerp(0.18,0.70,hard); const c=color(brushColor); c.setAlpha(255*baseA);
-      paintLayer.fill(c); paintLayer.circle(x,y,currentBrushSize*lerp(0.95,0.60,hard));
-    }
-    function stampFan(x,y,dir){
-      const {len,thick}=getFanParams();
-      paintLayer.push(); paintLayer.translate(x,y); paintLayer.rotate(dir); paintLayer.noStroke();
-      const hard=coreHardness/100;
-      const halo=color(brushColor); halo.setAlpha(28);
-      paintLayer.fill(halo); paintLayer.rectMode(CENTER);
-      paintLayer.rect(0,0,len*1.04,Math.max(1,thick*1.4),Math.max(1,thick*0.7));
-      for(let i=0;i<2;i++){
-        const L=len*(1+(i?0.05:0)), T=thick*(1+(i?0.45:0));
-        const alpha=lerp(0.08,0.22,1-hard)*(i?1:0.6);
-        const c=color(brushColor); c.setAlpha(255*alpha);
-        paintLayer.fill(c); paintLayer.rectMode(CENTER);
-        paintLayer.rect(0,0,L,T,T*0.6);
-      }
-      const core=color(brushColor); core.setAlpha(255*lerp(0.45,0.80,hard));
-      paintLayer.fill(core); paintLayer.rectMode(CENTER);
-      paintLayer.rect(0,0,len,Math.max(1,thick*0.6),Math.max(1,thick*0.4));
-      paintLayer.pop();
-    }
-    function sprayDot(x,y,a=0.8){ paintLayer.noStroke(); const c=color(brushColor); c.setAlpha(255*a); paintLayer.fill(c); const d=random(currentBrushSize*0.08,currentBrushSize*0.30); paintLayer.circle(x,y,d); }
+  $('helpBtn').onclick = ()=> $('help').classList.add('open');
+  $('helpClose').onclick = ()=> $('help').classList.remove('open');
 
-    /* ===== Drips ===== */
-    function dripChance(){ return constrain(0.01 + dripStrength*0.003 + energy*0.08, 0, 0.30); }
-    function dripLen(){ const mul=0.8+0.022*dripStrength, em=1.0+energy*1.3; return random(currentBrushSize*1.2,currentBrushSize*3.8)*mul*em; }
-    function dripThick(){ return Math.max(2,currentBrushSize*(0.08+0.006*dripStrength)); }
-    function drawDrip(x,y,len,thick){
-      paintLayer.push(); paintLayer.stroke(brushColor); paintLayer.strokeWeight(thick);
-      paintLayer.line(x,y,x,y+len); paintLayer.noStroke(); paintLayer.fill(brushColor);
-      paintLayer.circle(x,y+len,Math.max(2,thick*0.7)); paintLayer.pop();
-    }
+  $('capSel').oninput = e=>{
+    const id=e.target.value;
+    applyCap(id);
+    setControlsLocked(id!=='custom');
+    // show/hide custom controls
+    $('sizeFlow').classList.toggle('hidden', id!=='custom');
+    $('designerRow').classList.toggle('hidden', id!=='custom');
+  };
 
-    /* ===== Orientation mapping for iPad/phones ===== */
-    function getScreenAngle(){
-      if (typeof window.orientation === 'number') return window.orientation;
-      const a=(screen.orientation && typeof screen.orientation.angle==='number')?screen.orientation.angle:0;
-      return ((a+540)%360)-180;
-    }
-    function tiltToRadians(b,g){
-      const ang=getScreenAngle(); let deg;
-      if (ang===0) deg=g; else if(ang===90) deg=b; else if(ang===-90||ang===270) deg=-b; else deg=-g;
-      return radians(deg||0);
-    }
+  $('sizeRange').oninput = e=> brushSize=parseInt(e.target.value,10);
+  $('flowRange').oninput = e=> flow=parseInt(e.target.value,10);
 
-    /* ===== Motion ===== */
-    function prepareMotion(){
-      (document.getElementById('motionBtn')||{}).onclick = askMotion;
-      (document.getElementById('mMotionPerm')||{}).onclick = askMotion;
+  $('fanEnable').oninput = e=>{ fanEnabled=e.target.checked; $('fanRow').classList.toggle('hidden', !fanEnabled); };
+  $('fanStrength').oninput = e=> fanStrength=parseInt(e.target.value,10);
+  $('fanFeather').oninput  = e=> fanFeather=parseInt(e.target.value,10);
 
-      if('ondevicemotion' in window){
-        let lastAcc={x:0,y:0,z:0};
-        window.addEventListener('devicemotion',(e)=>{
-          if(!e.accelerationIncludingGravity) return;
-          const a=e.accelerationIncludingGravity;
-          const jx=(a.x||0)-lastAcc.x, jy=(a.y||0)-lastAcc.y, jz=(a.z||0)-lastAcc.z;
-          lastAcc={x:a.x||0,y:a.y||0,z:a.z||0};
-          const mag=Math.sqrt(jx*jx + jy*j y + jz*jz); // NOTE: typo example to avoid — fixed next line
-        }, {passive:true});
+  $('dripEnable').oninput = e=>{ dripEnabled=e.target.checked; $('dripRow').classList.toggle('hidden', !dripEnabled); };
+  $('dripStrength').oninput = e=> dripStrength=parseInt(e.target.value,10);
 
-        // Correct energy integration (separate listener to avoid the typo above)
-        window.addEventListener('devicemotion',(e)=>{
-          if(!e.accelerationIncludingGravity) return;
-          const a=e.accelerationIncludingGravity;
-          const jx=(a.x||0), jy=(a.y||0), jz=(a.z||0);
-          const mag=Math.sqrt(jx*jx + jy*jy + jz*jz);
-          energy += (Math.min(1, mag/30) - energy) * 0.2; // gentle motion energy
-          updateHud();
-        }, {passive:true});
-      }
-    }
-    async function askMotion(){
-      try{
-        if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
-          const res=await DeviceOrientationEvent.requestPermission();
-          if(res!=='granted'){ updateStatus('motion denied'); return; }
-        }
-        attachOrientation(); updateStatus('motion enabled');
-        haveMotion=true;
-      }catch{ updateStatus('motion error'); }
-    }
-    function attachOrientation(){
-      window.addEventListener('deviceorientation',(ev)=>{
-        if (ev.gamma!=null) gamma=ev.gamma; if (ev.beta!=null) beta=ev.beta;
-        if (ev.beta!=null || ev.gamma!=null){
-          const target=tiltToRadians(ev.beta,ev.gamma);
-          const delta=normalizeAngle(target - orientAngle);
-          orientAngle=orientAngle + delta*orientSmooth;
-          haveOrientAngle=true; haveMotion=true; updateHud();
-        }
-      },{passive:true});
-      window.addEventListener('orientationchange',()=>{
-        if(beta!=null||gamma!=null){
-          const target=tiltToRadians(beta,gamma);
-          const delta=normalizeAngle(target-orientAngle);
-          orientAngle=orientAngle + delta*0.6;
-        }
-      });
-    }
+  $('anisoRange').oninput = e=> anisotropy=parseInt(e.target.value,10);
+  $('fanLen').oninput     = e=> fanLength=parseInt(e.target.value,10);
+  $('fanThick').oninput   = e=> fanThickness=parseInt(e.target.value,10);
+  $('coreHard').oninput   = e=> coreHardness=parseInt(e.target.value,10);
 
-    /* ===== Pointer (disabled when inputMode==='motion') ===== */
-    function attachPointer(){
-      if(!canvasElt) return;
-      const getXY=(e)=>{ const r=canvasElt.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top}; };
+  $('bgPick').oninput     = e=> freeBgColour=e.target.value;
+  $('fadeRange').oninput  = e=> fadeAlpha=parseInt(e.target.value,10);
 
-      canvasElt.addEventListener('pointerdown',(e)=>{
-        if(inputMode!=='pointer') return; // ignore in Motion mode
-        pointerActive=true;
-        canvasElt.setPointerCapture(e.pointerId);
-        const {x,y}=getXY(e);
-        sprayAt(x,y,e.pressure);
-        e.preventDefault();
-      },{passive:false});
+  $('fileInput')?.addEventListener('change',(ev)=>{
+    if(ev.target.files && ev.target.files[0]) loadPhotoFromFile(ev.target.files[0]);
+  });
 
-      canvasElt.addEventListener('pointermove',(e)=>{
-        if(inputMode!=='pointer' || !pointerActive) return;
-        const {x,y}=getXY(e);
-        sprayAt(x,y,e.pressure);
-        e.preventDefault();
-      },{passive:false});
+  $('zoomRange')?.addEventListener('input', e=>{ zoomFactor=parseInt(e.target.value,10)/100; });
 
-      const end=(e)=>{
-        if(inputMode!=='pointer') return;
-        pointerActive=false; lastP=null; e.preventDefault();
-      };
-      canvasElt.addEventListener('pointerup',end,{passive:false});
-      canvasElt.addEventListener('pointercancel',end,{passive:false});
-      canvasElt.addEventListener('pointerout',end,{passive:false});
-      canvasElt.addEventListener('pointerleave',end,{passive:false});
-    }
+  $('fitBtn').onclick = ()=>{ computeBaseFit(); photoOffset={x:0,y:0}; zoomFactor=1; };
+  $('oneBtn').onclick = ()=>{ computeBaseFit(); zoomFactor=Math.max(0.1,Math.min(3.0,1/baseFitScale)); photoOffset={x:0,y:0}; };
 
-    /* ===== Desktop UI ===== */
-    function attachUI_desktop(){
-      const $=id=>document.getElementById(id);
+  // start states
+  $('photoRow').classList.add('hidden');
+  $('freeRow').classList.remove('hidden');
+  updateHud();
+}
 
-      $('#clearBtn').onclick=clearCanvas;
-      $('#saveBtn').onclick =()=>saveCanvas('spray-can','png');
+function setControlsLocked(locked){
+  controlsLocked=locked;
+  // In presets, size/flow/geometry are locked; fan feather stays usable when fan is on
+  ['sizeRange','flowRange','anisoRange','fanLen','fanThick','coreHard'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.disabled=locked;
+  });
+}
 
-      $('#modeBtn').onclick=()=>{
-        mode=(mode==='free')?'photo':'free';
-        $('#modeLabel').textContent=(mode==='free'?'Free-Air':'Photo-Wall');
-        $('#photoRow').classList.toggle('hidden',mode!=='photo');
-        $('#freeRow').classList.toggle('hidden',mode!=='free');
-        clearPaintingOnly(); updateHud();
-      };
+function applyCap(id){
+  const C={
+    ultra_skinny:{ size:10, flow:18, hard:70, len:120, thick:3  },
+    skinny:      { size:13, flow:26, hard:60, len:160, thick:5  },
+    medium:      { size:16, flow:34, hard:45, len:190, thick:7  },
+    fat:         { size:22, flow:58, hard:40, len:280, thick:12 },
+    super_fat:   { size:30, flow:88, hard:30, len:400, thick:16 }
+  };
+  if(id==='custom') return;
 
-      $('#inputSel').oninput = e=>{
-        inputMode = e.target.value;
-        document.getElementById('inputHud').textContent = (inputMode==='motion'?'Motion':'Pointer');
-      };
+  const p=C[id]; if(!p) return;
+  brushSize=p.size; flow=p.flow; coreHardness=p.hard;
+  fanLength=p.len; fanThickness=p.thick;
 
-      $('#capSel').oninput = e=>{ applyCap(e.target.value); setControlsLocked(e.target.value!=='custom'); reflectDesignerInteractivity(); };
+  // Presets start round
+  fanEnabled=false; fanStrength=0;
+  document.getElementById('fanEnable').checked=false;
+  document.getElementById('fanStrength').value=0;
+  document.getElementById('fanRow').classList.add('hidden');
 
-      $('#sizeRange').oninput=e=>brushSize=parseInt(e.target.value,10);
-      $('#flowRange').oninput=e=>flow=parseInt(e.target.value,10);
-      $('#colorPick').oninput=e=>brushColor=e.target.value;
+  // reflect sliders if visible
+  const sr=document.getElementById('sizeRange'); if(sr) sr.value=brushSize;
+  const fr=document.getElementById('flowRange'); if(fr) fr.value=flow;
+  const ch=document.getElementById('coreHard'); if(ch) ch.value=coreHardness;
+  const fl=document.getElementById('fanLen'); if(fl) fl.value=fanLength;
+  const ft=document.getElementById('fanThick'); if(ft) ft.value=fanThickness;
+}
 
-      $('#anisoRange').oninput=e=>anisotropy=parseInt(e.target.value,10);
-      $('#fanLen').oninput  =e=>fanLength=parseInt(e.target.value,10);
-      $('#fanThick').oninput=e=>fanThickness=parseInt(e.target.value,10);
-      $('#coreHard').oninput=e=>coreHardness=parseInt(e.target.value,10);
+/* ================== Photo helpers ================== */
+function computeBaseFit(){ if(!bgImg) return; baseFitScale=Math.min(width/bgImg.width, height/bgImg.height)||1; }
+function drawPhotoTransformed(){ drawChecker(); push(); translate(width/2+photoOffset.x, height/2+photoOffset.y); scale(baseFitScale*zoomFactor); imageMode(CENTER); image(bgImg,0,0); pop(); }
+function loadPhotoFromFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{ loadImage(e.target.result,(img)=>{ bgImg=img; computeBaseFit(); zoomFactor=1; photoOffset={x:0,y:0}; clearPaintingOnly(); }); };
+  reader.readAsDataURL(file);
+}
 
-      $('#dripEnable').oninput=e=>{ dripEnabled=e.target.checked; toggleRow('dripRow',dripEnabled); };
-      $('#dripStrength').oninput=e=>dripStrength=parseInt(e.target.value,10);
+/* ================== Misc ================== */
+function clearCanvas(){ (mode==='photo'&&bgImg)?(background(0),drawPhotoTransformed()):background(freeBgColour); paintLayer.clear(); lastP=null; }
+function clearPaintingOnly(){ (mode==='photo'&&bgImg)?(background(0),drawPhotoTransformed()):background(freeBgColour); paintLayer.clear(); lastP=null; }
+function drawChecker(){ const s=40; noStroke(); for(let y=0;y<height;y+=s){ for(let x=0;x<width;x+=s){ const odd=((x+y)/s)%2===0; fill(odd?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.02)'); rect(x,y,s,s);} } }
+function updateHud(){
+  document.getElementById('status').textContent=(inputMode==='motion'?'move/tilt to draw':'drag or Pencil to draw');
+  document.getElementById('inputHud').textContent=(inputMode==='motion'?'Motion':'Pointer');
+  document.getElementById('b').textContent=(beta==null?'—':beta.toFixed(1));
+  document.getElementById('g').textContent=(gamma==null?'—':gamma.toFixed(1));
+  document.getElementById('en').textContent=energy.toFixed(2);
+}
 
-      $('#fanEnable').oninput=e=>{ fanEnabled=e.target.checked; toggleRow('fanRow',fanEnabled); reflectDesignerInteractivity(); };
-      $('#fanStrength').oninput=e=>fanStrength=parseInt(e.target.value,10);
-      $('#fanFeather').oninput=e=>fanFeather=parseInt(e.target.value,10);
-
-      $('#bgPick').oninput=e=>freeBgColour=e.target.value;
-      $('#fadeRange').oninput=e=>fadeAlpha=parseInt(e.target.value,10);
-
-      $('#loadBtn')?.addEventListener('click', ()=> $('#fileInput').click());
-      $('#fileInput')?.addEventListener('change', (ev)=>{ if(ev.target.files && ev.target.files[0]) loadPhotoFromFile(ev.target.files[0]); });
-
-      $('#zoomRange')?.addEventListener('input', e=>{ zoomFactor=parseInt(e.target.value,10)/100; });
-      $('#zoomInBtn')?.addEventListener('click', ()=>{ zoomFactor=Math.min(3.0, zoomFactor*1.15); });
-      $('#zoomOutBtn')?.addEventListener('click', ()=>{ zoomFactor=Math.max(0.1, zoomFactor/1.15); });
-      $('#fitBtn')?.addEventListener('click', ()=>{ computeBaseFit(); photoOffset={x:0,y:0}; zoomFactor=1; });
-      $('#oneBtn')?.addEventListener('click', ()=>{ computeBaseFit(); zoomFactor=Math.max(0.1,Math.min(3.0,1/baseFitScale)); photoOffset={x:0,y:0}; });
-
-      $('#menuBtn').onclick =()=> document.getElementById('panelRoot').classList.toggle('compact');
-      $('#helpBtn').onclick =()=> document.getElementById('help').style.display='grid';
-      document.getElementById('helpClose').onclick=()=> document.getElementById('help').style.display='none';
-
-      window.addEventListener('keydown',(e)=>{ if(e.key===' '){ e.preventDefault(); clearCanvas(); } });
-
-      toggleRow('dripRow',false); toggleRow('fanRow',false);
-      reflectDesignerInteractivity(); setControlsLocked(true);
-    }
-
-    /* ===== Mobile drawer ===== */
-    function attachUI_mobile(){
-      const $=id=>document.getElementById(id);
-      const drawer=$('drawer'), grab=$('grab');
-      let dragging=false, startY=0, startOpen=false;
-
-      grab.addEventListener('click', ()=> drawer.classList.toggle('open'));
-      grab.addEventListener('touchstart', (e)=>{ dragging=true; startY=e.touches[0].clientY; startOpen=drawer.classList.contains('open'); }, {passive:true});
-      grab.addEventListener('touchmove', (e)=>{ if(!dragging) return; const dy=e.touches[0].clientY-startY; if(!startOpen && dy>30) { drawer.classList.add('open'); dragging=false; } if(startOpen && dy<-30){ drawer.classList.remove('open'); dragging=false; } }, {passive:true});
-      grab.addEventListener('touchend', ()=> dragging=false, {passive:true});
-
-      $('mClear').onclick=clearCanvas;
-      $('mSave').onclick =()=>saveCanvas('spray-can','png');
-      $('mHelp').onclick =()=>{ document.getElementById('help').style.display='grid'; drawer.classList.remove('open'); };
-
-      $('mMode').onclick =()=>{
-        mode=(mode==='free')?'photo':'free';
-        $('mMode').textContent=(mode==='free'?'Free-Air':'Photo-Wall');
-        clearPaintingOnly();
-        drawer.classList.remove('open');
-      };
-
-      // Input switch & permission
-      $('mInput').oninput = e=>{
-        inputMode = e.target.value;
-        document.getElementById('inputHud').textContent = (inputMode==='motion'?'Motion':'Pointer');
-      };
-      $('mMotionPerm').onclick = askMotion;
-
-      // Colour & caps
-      $('mColor').oninput=e=>brushColor=e.target.value;
-      $('mCap').oninput =e=>{ applyCap(e.target.value); setControlsLocked(e.target.value!=='custom'); reflectDesignerInteractivity(); syncMobileVisibility(); };
-
-      $('mSize').oninput =e=>brushSize=parseInt(e.target.value,10);
-      $('mFlow').oninput =e=>flow=parseInt(e.target.value,10);
-
-      $('mDrip').oninput =e=>{ dripEnabled=e.target.checked; $('mDripRow').classList.toggle('hidden',!dripEnabled); };
-      $('mDripStrength').oninput=e=>dripStrength=parseInt(e.target.value,10);
-
-      $('mFan').oninput  =e=>{ fanEnabled=e.target.checked; $('mFanRow').classList.toggle('hidden',!fanEnabled); reflectDesignerInteractivity(); };
-      $('mFanStrength').oninput=e=>fanStrength=parseInt(e.target.value,10);
-      $('mFanFeather').oninput =e=>fanFeather=parseInt(e.target.value,10);
-
-      $('mAniso').oninput =e=>anisotropy=parseInt(e.target.value,10);
-      $('mLen').oninput   =e=>fanLength=parseInt(e.target.value,10);
-      $('mThick').oninput =e=>fanThickness=parseInt(e.target.value,10);
-      $('mHard').oninput  =e=>coreHardness=parseInt(e.target.value,10);
-
-      if (window.matchMedia('(max-width:600px)').matches) drawer.classList.remove('open');
-      syncMobileVisibility();
-    }
-
-    function syncMobileVisibility(){
-      const isCustom = !controlsLocked;
-      const mSF = document.getElementById('mSizeFlow');
-      const mDes = document.getElementById('mDesigner');
-      if(mSF) mSF.style.display = isCustom ? 'flex' : 'none';
-      if(mDes){ mDes.style.opacity = isCustom ? 1 : .6; [...mDes.querySelectorAll('input')].forEach(el=> el.disabled=!isCustom); }
-    }
-
-    function reflectDesignerInteractivity(){
-      const isLocked = controlsLocked, fanOn = fanEnabled;
-      ['coreHard','anisoRange','fanLen','fanThick'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=isLocked; });
-      const ff=document.getElementById('fanFeather'); if(ff) ff.disabled = isLocked || !fanOn;
-      const mff=document.getElementById('mFanFeather'); if(mff) mff.disabled = isLocked || !fanOn;
-      if(!isLocked){
-        const an=document.getElementById('anisoRange'); if(an) an.value=fanStrength;
-        const man=document.getElementById('mAniso'); if(man) man.value=fanStrength;
-      }
-    }
-
-    function toggleRow(id,show){ const el=document.getElementById(id); if(el) el.classList.toggle('hidden',!show); }
-    function setControlsLocked(locked){
-      controlsLocked=locked;
-      const sfg=document.getElementById('sizeFlowGroup'); if(sfg) sfg.classList.toggle('hidden',locked);
-      ['sizeRange','flowRange'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=locked; });
-      const lr=document.getElementById('lockRow'); if(lr) lr.style.display=locked?'flex':'none';
-      const designer=document.getElementById('designerRow'); if(designer) designer.style.opacity=locked?0.6:1;
-    }
-
-    /* ===== Caps (presets are round; only Fan/Drip can be added) ===== */
-    function applyCap(id){
-      const C={
-        ultra_skinny:{ size:10, flow:18, hard:70, len:120, thick:3  },
-        skinny:      { size:13, flow:26, hard:60, len:160, thick:5  },
-        medium:      { size:16, flow:34, hard:45, len:190, thick:7  },
-        fat:         { size:22, flow:58, hard:40, len:280, thick:12 },
-        super_fat:   { size:30, flow:88, hard:30, len:400, thick:16 }
-      };
-      if(id==='custom'){ return; }
-      const p=C[id]; if(!p) return;
-
-      brushSize=p.size; flow=p.flow; coreHardness=p.hard; fanLength=p.len; fanThickness=p.thick;
-
-      // Start presets as round (fan off)
-      fanEnabled=false; fanStrength=0;
-      const fe=document.getElementById('fanEnable'), fs=document.getElementById('fanStrength');
-      if(fe) fe.checked=false; if(fs) fs.value=0; toggleRow('fanRow',false);
-      const mfe=document.getElementById('mFan'), mfs=document.getElementById('mFanStrength'), mfr=document.getElementById('mFanRow');
-      if(mfe) mfe.checked=false; if(mfs) mfs.value=0; if(mfr) mfr.classList.add('hidden');
-
-      // Reflect base sliders (if visible)
-      ['sizeRange','flowRange','coreHard','fanLen','fanThick'].forEach(id=>{
-        const el=document.getElementById(id);
-        if(id==='sizeRange' && el) el.value=brushSize;
-        if(id==='flowRange' && el) el.value=flow;
-        if(id==='coreHard' && el) el.value=coreHardness;
-        if(id==='fanLen' && el) el.value=fanLength;
-        if(id==='fanThick' && el) el.value=fanThickness;
-      });
-      const ms=document.getElementById('mSize'); if(ms) ms.value=brushSize;
-      const mf=document.getElementById('mFlow'); if(mf) mf.value=flow;
-    }
-
-    /* ===== Photo helpers & misc ===== */
-    function computeBaseFit(){ if(!bgImg) return; baseFitScale=Math.min(width/bgImg.width,height/bgImg.height)||1; }
-    function drawPhotoTransformed(){ drawChecker(); push(); translate(width/2+photoOffset.x,height/2+photoOffset.y); scale(baseFitScale*zoomFactor); imageMode(CENTER); image(bgImg,0,0); pop(); }
-    function loadPhotoFromFile(file){ const reader=new FileReader(); reader.onload=e=>{ loadImage(e.target.result,(img)=>{ bgImg=img; computeBaseFit(); zoomFactor=1; photoOffset={x:0,y:0}; clearPaintingOnly(); }); }; reader.readAsDataURL(file); }
-
-    function clearCanvas(){ (mode==='photo'&&bgImg)?(background(0),drawPhotoTransformed()):background(freeBgColour); paintLayer.clear(); lastP=null; }
-    function clearPaintingOnly(){ (mode==='photo'&&bgImg)?(background(0),drawPhotoTransformed()):background(freeBgColour); paintLayer.clear(); lastP=null; }
-    function updateHud(){ document.getElementById('status').textContent = (inputMode==='motion'?'move/tilt to draw':'drag or Pencil to draw'); document.getElementById('inputHud').textContent=(inputMode==='motion'?'Motion':'Pointer'); document.getElementById('b').textContent=(beta==null?'—':beta.toFixed(1)); document.getElementById('g').textContent=(gamma==null?'—':gamma.toFixed(1)); document.getElementById('en').textContent=energy.toFixed(2); }
-    function updateStatus(msg){ document.getElementById('status').textContent=msg; }
-    function drawChecker(){ const s=40; noStroke(); for(let y=0;y<height;y+=s){ for(let x=0;x<width;x+=s){ const odd=((x+y)/s)%2===0; fill(odd?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.02)'); rect(x,y,s,s);} } }
-  </script>
+/* utility */
+function clamp(min,v,max){ return Math.max(min, Math.min(max, v)); }
+</script>
 </body>
 </html>
