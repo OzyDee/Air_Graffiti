@@ -443,13 +443,13 @@
       const mag = Math.hypot(radG, radB);
       if(mag < mvDead) return null;
 
-      // Horizon lock keeps fan horizontal; for pointer position we still map both axes
-      const gx = map(constrain(dg*mvGain, -60,60), -60,60, 0, width);
-      const gy = map(constrain(db*mvGain,   0,90),   0,90,  0, height);
+      // Correct orientation mapping for natural movement
+      const gx = map(constrain(-dg*mvGain, -60,60), -60,60, 0, width);  // invert gamma to match left/right
+      const gy = map(constrain(db*mvGain, -90,90), -90,90, height, 0);  // invert beta so forward tilt sprays upward
       return {x: gx, y: gy};
-    }
 
-    function calibrateMotion(){
+    }
+      function calibrateMotion(){
       calib.b = beta ?? 0;
       calib.g = gamma ?? 0;
       updateStatus('Motion calibrated');
